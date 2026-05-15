@@ -1,0 +1,1417 @@
+---
+title: "Flexible dose-response models"
+author: "Konstantina Chalkou"
+output:
+  html_document:
+    theme: cerulean
+    body_placement: left
+    toc: yes
+    toc_depth: 6
+    toc_collapsed: no
+---
+<style type="text/css">
+body {
+  font-family: "Times New Roman", Times, serif;
+  color: #000000;
+  font-size: 18px;
+}
+
+.main-container {
+  max-width: 100% !important;
+  margin-left: 0%;
+  margin-right: 0%;
+  text-align: justify;
+  color: #000000;
+}
+
+p, li, td, th, h1, h2, h3, h4, h5, h6 {
+  color: #000000;
+}
+
+.MathJax, .MathJax_Display {
+  color: #000000 !important;
+}
+p {
+  text-indent: 2em;
+  text-align: justify;
+}
+</style>
+
+```{css toc-content, echo = FALSE}
+#TOC {
+  margin: 25px 0px 20px 0px;
+}
+
+div.tocify {
+  width: 40%;
+  max-width: 450px;
+}
+```
+
+<div align="justify">
+
+
+```{r include= FALSE}
+###Libraries
+library(dplyr)
+library(forcats)
+library(splines)
+library(MASS)
+library(rms)
+library(purrr)
+library(ggplot2)
+
+# source the needed functions
+source("R/Functions.R")
+
+############################### Data preparation ####################################################
+
+### 1st in 01_data_prep.R the real data need to be loaded and to include these variables named as:
+#"pid", "studyid","age",
+#"sex","dose", "outcome" , "visit","treat" and "side.effects" (number of reposrted: 0 to 10)
+source("R/01_data_prep.R")
+
+### Create the needed vars for the analyses
+trials <- list(
+  trial_1 = trial_1
+)
+
+analysis_trials <- lapply(
+  trials,
+  prepare_dose_response_data,
+  treatment_name = "PAROXETINE",
+  visit_min = 0,
+  visit_max = 8,
+  dose_levels = c(0,10,20, 30, 40, 50),
+  dose_history_levels = c(0, 10, 20, 30, 40, 50)
+)
+```
+
+## Clinical outcome, safety measure, time-varying confounders, and dataset
+
+The clinical outcome of the included study is the Hamilton Depression Rating Scale (HAMD) score, denoted by \(Y_{it}\), measured for patient \(i\) at visit \(t\). The baseline HAMD score was denoted by \(Y_{i0}\). Treatment response was expressed as improvement from baseline: 
+\[
+\Delta Y_{it} = Y_{i0} - Y_{it}
+\]
+
+Thus, positive values of \(ΔY_{it}\) indicate improvement. Safety was summarized at each visit using a side-effect burden score \(S_{it}\), measured on a 0–10 scale, where higher values indicate a greater number of side effects reported by the patient. 
+
+In this setting, we distinguished between previous dose history and time-varying confounder history. Previous dose \(d_{it-1}\) was treated as part of the treatment process, because it defines the dose trajectory and is a strong predictor of the next assigned dose. <u>Time-varying confounders</u> were defined as post-baseline clinical variables, other than dose itself, that may be affected by previous dose and may also influence subsequent dose assignment, future outcomes, or discontinuation. Specifically, efficacy (HAMD improvement) \(ΔY_{it}\), and side-effect severity \(S_{it}\) were treated as time-varying confounders. 
+
+The dataset includes `r length(unique(analysis_trials$trial_1$pid))` patients treated with Paroxetine and `r nrow(analysis_trials$trial_1)` patient-visits in total. The observed dose levels were `r paste(sort(unique(analysis_trials$trial_1$dose)), collapse = ", ")`. Summary statistics for efficacy and side-effect burden are shown below.
+
+```{r summary-efficacy-safety, echo=FALSE}
+dat <- analysis_trials$trial_1
+
+summarise_var <- function(x) {
+  c(
+    N = sum(!is.na(x)),
+    Mean = mean(x, na.rm = TRUE),
+    SD = sd(x, na.rm = TRUE),
+    Min = min(x, na.rm = TRUE),
+    Median = median(x, na.rm = TRUE),
+    Max = max(x, na.rm = TRUE)
+  )
+}
+
+summary_table <- rbind(
+  "HAMD improvement" = summarise_var(dat$delta_outcome),
+  "Side-effect" = summarise_var(dat$side.effects)
+)
+
+knitr::kable(
+  round(summary_table, 2)
+)
+```
+<p style="text-indent: 0;">
+Side-effect values were simulated and intentionally generated to have a weak negative association with dose.
+</p>
+```{r echo=FALSE, message=FALSE,warning=FALSE}
+ggplot(analysis_trials$trial_1, aes(x = side.effects, y = dose)) +
+  geom_jitter(width = 0.15, height = 0.4, alpha = 0.6, size = 1.5) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(
+    x = "Side effects",
+    y = "Dose",
+    title = "Association between dose and side effects"
+  ) +
+  theme_minimal()
+```
+
+
+```{r dose-by-visit-table, echo=FALSE, message=FALSE, warning=FALSE}
+dose_visit_table <- analysis_trials$trial_1 %>%
+  dplyr::filter(use_treatment_weight) %>%
+  dplyr::count(visit, dose_f, name = "n") %>%
+  tidyr::pivot_wider(
+    names_from = dose_f,
+    values_from = n,
+    values_fill = 0
+  ) %>%
+  dplyr::arrange(visit)
+
+knitr::kable(
+  dose_visit_table,
+  caption = "Number of patient-visits by dose and visit in weeks"
+)
+```
+
+```{r dose-titration-by-visit, echo=FALSE, message=FALSE, warning=FALSE}
+dose_titration_table <- analysis_trials$trial_1 %>%
+  dplyr::filter(use_treatment_weight) %>%
+  dplyr::mutate(
+    previous_dose = ifelse(is.na(dose_lag1_f), "No previous dose", as.character(dose_lag1_f)),
+    current_dose  = as.character(dose_f)
+  ) %>%
+  dplyr::count(visit, previous_dose, current_dose, name = "n") %>%
+  tidyr::pivot_wider(
+    names_from = current_dose,
+    values_from = n,
+    values_fill = 0
+  ) %>%
+  dplyr::arrange(visit, previous_dose) %>%
+  dplyr::rename(
+    Visit = visit,
+    `Previous dose` = previous_dose
+  )
+
+knitr::kable(
+  dose_titration_table,
+  caption = "Dose titration by visit in weeks: previous dose versus current dose"
+)
+```
+<p style="text-indent: 0;">
+In these data, the ordered visit index was not used as the time scale because actual visit days varied considerably across patients.
+</p>
+
+```{r visit-day-by-patient-row, echo=FALSE, message=FALSE, warning=FALSE}
+visit_day_by_patient_row <- analysis_trials$trial_1 %>%
+  dplyr::arrange(pid, visit_day) %>%
+  dplyr::group_by(pid) %>%
+  dplyr::mutate(patient_row = dplyr::row_number()) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(patient_row) %>%
+  dplyr::summarise(
+    n = dplyr::n(),
+    min_day = min(visit_day, na.rm = TRUE),
+    median_day = median(visit_day, na.rm = TRUE),
+    mean_day = mean(visit_day, na.rm = TRUE),
+    max_day = max(visit_day, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  dplyr::rename(
+    `Patient visit order` = patient_row,
+    `Number of patients` = n,
+    `Minimum day` = min_day,
+    `Median day` = median_day,
+    `Mean day` = mean_day,
+    `Maximum day` = max_day
+  )
+
+knitr::kable(
+  visit_day_by_patient_row,
+  digits = 1,
+  caption = "Distribution of actual visit days by patient visit order"
+)
+```
+
+## Notation
+
+<style>
+.notation-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: "Times New Roman", Times, serif;
+  color: #000000;
+  font-size: 16px;
+}
+
+.notation-table th {
+  text-align: left;
+  border-top: 1px solid #000000;
+  border-bottom: 1px solid #000000;
+  padding: 4px 8px;
+}
+
+.notation-table td {
+  vertical-align: top;
+  padding: 4px 8px;
+}
+
+.notation-table td:first-child {
+  width: 35%;
+  white-space: nowrap;
+}
+</style>
+
+<table class="notation-table">
+<thead>
+<tr>
+<th>Notation</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+
+<tr>
+<td>\(i = 1,\ldots,n\)</td>
+<td>Patient index.</td>
+</tr>
+
+<tr>
+<td>\(t = 0,1,\ldots,T_i\)</td>
+<td>Ordered visit index for patient \(i\); \(t = 0\) denotes baseline.</td>
+</tr>
+
+<tr>
+<td>\(\mathrm{week}_{it}\)</td>
+<td>Actual study week of visit \(t\) for patient \(i\).</td>
+</tr>
+
+<tr>
+<td>\(Y_{it}\)</td>
+<td>HAMD score for patient \(i\) at visit \(t\).</td>
+</tr>
+
+<tr>
+<td>\(\Delta Y_{it} = Y_{i0} - Y_{it}\)</td>
+<td>HAMD improvement from baseline at visit \(t\). Positive values indicate improvement.</td>
+</tr>
+
+<tr>
+<td>\(S_{it}\)</td>
+<td>Side-effect burden score for patient \(i\) at visit \(t\), measured on a 0–10 scale.</td>
+</tr>
+
+<tr>
+<td>\(d_{it}\)</td>
+<td>Observed dose actually assigned to patient \(i\) at visit \(t\).</td>
+</tr>
+
+<tr>
+<td>\(H_{it}\)</td>
+<td>Full observed history used in the denominator dose model.</td>
+</tr>
+
+<tr>
+<td>\(H_{it}^{*}\)</td>
+<td>Reduced observed history used in the numerator dose model.</td>
+</tr>
+
+<tr>
+<td>\(R_{it}\)</td>
+<td>Indicator for remaining observed at the next visit;<br>
+\(R_{it} = 1\) if patient \(i\) remains observed at visit \(t\), and 0 otherwise.</td>
+</tr>
+
+<tr>
+<td>\(H_{it}^{C}\)</td>
+<td>Full observed history used in the denominator censoring model.</td>
+</tr>
+
+<tr>
+<td>\(H_{it}^{C*}\)</td>
+<td>Reduced observed history used in the numerator censoring model.</td>
+</tr>
+
+<tr>
+<td>\(\hat{p}_{it}^{D}\)</td>
+<td>Fitted denominator probability of the observed dose.</td>
+</tr>
+
+<tr>
+<td>\(\hat{q}_{it}^{D}\)</td>
+<td>Fitted numerator probability of the observed dose.</td>
+</tr>
+
+<tr>
+<td>\(\mathrm{SW}_{it}^{D}\)</td>
+<td>Visit-specific stabilized dose weight.</td>
+</tr>
+
+<tr>
+<td>\(\mathrm{cSW}_{it}^{D}\)</td>
+<td>Cumulative stabilized dose weight through visit \(t\).</td>
+</tr>
+
+<tr>
+<td>\(\hat{p}_{it}^{C}\)</td>
+<td>Fitted denominator probability of remaining observed.</td>
+</tr>
+
+<tr>
+<td>\(\hat{q}_{it}^{C}\)</td>
+<td>Fitted numerator probability of remaining observed.</td>
+</tr>
+
+<tr>
+<td>\(\mathrm{SW}_{it}^{C}\)</td>
+<td>Visit-specific stabilized censoring weight for patient \(i\).</td>
+</tr>
+
+<tr>
+<td>\(\mathrm{cSW}_{it}^{C}\)</td>
+<td>Cumulative stabilized censoring weight through visit \(t\) for patient \(i\).</td>
+</tr>
+
+<tr>
+<td>\(\mathrm{SW}_{it}^{\mathrm{total}}\)</td>
+<td>Final stabilized weight for patient \(i\) at visit \(t\).</td>
+</tr>
+
+</tbody>
+</table>
+
+## Step 1 - Inverse probability of dose and censoring weighting (IPDCW)
+
+### Inverse probability of dose weights (IPTW)
+
+The first step for estimating marginal structural models (MSMs) was to construct stabilized inverse probability of dose weights that adjust for time-varying confounding affected by prior dose, following Robins, Hernán and Brumback (2000). 
+
+The **denominator model** represents the full dose assignment mechanism and estimates the probability of receiving the observed dose conditional on past dose and the full history of time-varying covariates. The **numerator model** is a simplified version of the dose assignment mechanism and includes only time and past dose history. Its purpose is to stabilize the weights and reduce variance without reintroducing confounding. The stabilized weight at visit \(t\) is defined as the ratio of the probability of receiving the observed dose estimated from the numerator model to the probability from the denominator model.
+
+#### Dose weight denominator
+
+The **denominator model** the dose weight was fitted at the patient-visit level using ordinal logistic regression, treating dose as an ordered categorical variable (20<30<40<50). For each threshold d∈{20,30,40}, we modelled the cumulative probability of receiving a dose less than or equal to d.
+
+\[
+\begin{aligned}
+\operatorname{logit}\left\{\Pr(D_{it} \le c \mid H_{it})\right\}
+&=
+\log\left[
+\frac{\Pr(D_{it} \le d \mid H_{it})}
+{1 - \Pr(D_{it} \le d \mid H_{it})}
+\right] \\
+&=
+\alpha_{0d}
++ \alpha_1 f(\mathrm{week}_{it})
++ \alpha_2 \Delta Y_{it}
++ \alpha_3 S_{it}
++ \alpha_4 d_{i,t-1} \\
+&\quad
++ \alpha_5 d_{i,t-1}\Delta Y_{it}
++ \alpha_6 d_{i,t-1}S_{it}
++ \alpha_7 Y_{i0}.
+\end{aligned}
+\] 
+where
+
+\[
+H_{it} =
+\left\{
+\mathrm{week}_{it},
+\Delta Y_{it},
+S_{it},
+d_{i,t-1},
+d_{i,t-1}S_{it},
+d_{i,t-1}\Delta Y_{it},
+Y_{i0}
+\right\}
+\]
+is the observed history available for patient \(i\) before the dose assignment at visit \(t\).
+The term \(f(\mathrm{week}_{it})\) denotes a restricted cubic spline function of actual study week, specified with three knots at the 10th, 50th, and 90th percentiles of the observed visit distribution.
+
+```{r iptw-denominator-coef-tabs, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+iptw_denominator_models <- lapply(
+  analysis_trials,
+  fit_iptw_denominator_model
+)
+
+iptw_denominator_coef_tabs <- lapply(
+  iptw_denominator_models,
+  make_polr_coef_table
+)
+
+trial_names <- names(iptw_denominator_coef_tabs)
+
+if (is.null(trial_names)) {
+  trial_names <- paste("Trial", seq_along(iptw_denominator_coef_tabs))
+}
+
+for (i in seq_along(iptw_denominator_coef_tabs)) {
+
+  print(
+    knitr::kable(
+      iptw_denominator_coef_tabs[[i]],
+      digits = 3,
+      caption = paste("Coefficient table for the dose weight denominator:")
+    )
+  )
+
+  cat("\n\n")
+}
+```
+<p style="text-indent: 0;">
+A **positive coefficient** means that higher values of that variable are associated with a higher probability of receiving a higher dose, whereas a **negative coefficient** means that higher values of that variable are associated with a higher probability of receiving a lower dose.
+After fitting the ordinal model, predicted probabilities were obtained for each dose category. The denominator probability used in the dose weight was the fitted probability of the dose actually received:
+</p>
+\[
+\hat{p}_{it}^{D}
+=
+\widehat{\Pr}\left(D_{it} = d_{it} \mid H_{it}\right).
+\]
+
+#### Dose weight numerator 
+
+The **numerator model** is like the denominator model, except that all potential time-dependent confounders were excluded, namely improvement from baseline and side-effect severity.
+Let
+
+\[
+H_{it}^{*}
+=
+\left\{
+\mathrm{week}_{it},
+d_{i,t-1},
+Y_{i0}
+\right\}
+\]
+denote the reduced observed history.
+\[
+\begin{aligned}
+\operatorname{logit}
+\left\{
+\Pr\left(D_{it} \le c \mid H_{it}^{*}\right)
+\right\}
+&=
+\log
+\left[
+\frac{
+\Pr\left(D_{it} \le c \mid H_{it}^{*}\right)
+}{
+\ 1-Pr\left(D_{it} \le c \mid H_{it}^{*}\right)
+}
+\right] \\
+&=
+\beta_{0c}
++ \beta_{1} f(\mathrm{week}_{it})
++ \beta_{2} d_{i,t-1}
++ \beta_{3} Y_{i0}.
+\end{aligned}
+\] 
+```{r iptw-numerator-coef-tabs, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+iptw_numerator_models <- lapply(
+  analysis_trials,
+  fit_iptw_numerator_model
+)
+   #coefficients
+iptw_numerator_coef_tabs <- lapply(
+  iptw_numerator_models,
+  make_polr_coef_table
+)
+
+analysis_trials$trial_1 <- add_iptw_treatment_weights(
+  data = analysis_trials$trial_1,
+  denominator_model = iptw_denominator_models$trial_1,
+  numerator_model = iptw_numerator_models$trial_1
+)
+
+trial_names <- names(iptw_numerator_coef_tabs)
+
+if (is.null(trial_names)) {
+  trial_names <- paste("Trial", seq_along(iptw_numerator_coef_tabs))
+}
+
+for (i in seq_along(iptw_numerator_coef_tabs)) {
+
+  print(
+    knitr::kable(
+      iptw_numerator_coef_tabs[[i]],
+      digits = 3,
+      caption = paste("Coefficient table for the dose weight numerator:")
+    )
+  )
+
+  cat("\n\n")
+}
+```
+<p style="text-indent: 0;">
+The fitted probability corresponding to the observed dose \(d_{it}\) was extracted as
+</p>
+
+\[
+\hat{q}_{it}^{D}
+=
+\widehat{\Pr}\left(D_{it} = d_{it} \mid H_{it}^{*}\right).
+\]
+
+#### Stabilized dose weights
+
+The visit-specific stabilized dose weight was then calculated as
+
+\[
+\mathrm{SW}_{it}^{D}
+=
+\frac{\hat{q}_{it}^{D}}{\hat{p}_{it}^{D}}.
+\]
+The cumulative stabilized dose weight through visit \(t\) was obtained by multiplying the visit-specific weights from the first post-baseline visit up to the current visit:
+
+\[
+\mathrm{cSW}_{it}^{D}
+=
+\prod_{s=1}^{t} \mathrm{SW}_{is}^{D}.
+\]
+```{r iptw-treatment-weight-summary-clean, echo=FALSE, message=FALSE, warning=FALSE}
+iptw_weight_summaries <- lapply(
+  analysis_trials,
+  summarise_iptw_treatment_weights
+)
+
+tab <- iptw_weight_summaries$trial_1
+
+clean_tab <- data.frame(
+  Measure = c(
+    "Number of patient-visits",
+    "Number of patients",
+    "Mean",
+    "SD",
+    "Minimum",
+    "1st percentile",
+    "5th percentile",
+    "25th percentile",
+    "Median",
+    "75th percentile",
+    "95th percentile",
+    "99th percentile",
+    "Maximum",
+    "Effective sample size"
+  ),
+  `Visit-specific dose weight` = c(
+    tab$n,
+    tab$n_patients,
+    tab$mean_SW_treatment,
+    tab$sd_SW_treatment,
+    tab$min_SW_treatment,
+    tab$p1_SW_treatment,
+    tab$p5_SW_treatment,
+    tab$p25_SW_treatment,
+    tab$p50_SW_treatment,
+    tab$p75_SW_treatment,
+    tab$p95_SW_treatment,
+    tab$p99_SW_treatment,
+    tab$max_SW_treatment,
+    NA
+  ),
+  `Cumulative dose weight` = c(
+    tab$n,
+    tab$n_patients,
+    tab$mean_cSW_treatment,
+    tab$sd_cSW_treatment,
+    tab$min_cSW_treatment,
+    tab$p1_cSW_treatment,
+    tab$p5_cSW_treatment,
+    tab$p25_cSW_treatment,
+    tab$p50_cSW_treatment,
+    tab$p75_cSW_treatment,
+    tab$p95_cSW_treatment,
+    tab$p99_cSW_treatment,
+    tab$max_cSW_treatment,
+    tab$ESS_cSW_treatment
+  ),
+  check.names = FALSE
+)
+
+count_rows <- clean_tab$Measure %in% c(
+  "Number of patient-visits",
+  "Number of patients"
+)
+
+display_tab <- clean_tab
+
+for (col in c("Visit-specific dose weight", "Cumulative dose weight")) {
+  display_tab[[col]] <- ifelse(
+    is.na(clean_tab[[col]]),
+    "",
+    ifelse(
+      count_rows,
+      as.character(round(clean_tab[[col]], 0)),
+      sprintf("%.3f", clean_tab[[col]])
+    )
+  )
+}
+
+knitr::kable(
+  display_tab,
+  caption = "Summary of visit-specific and cumulative stabilized dose weights"
+)
+```
+<p style="text-indent: 0;">
+Note: The ordinal dose model assumes proportional odds, meaning that the covariates have a common effect across the cumulative dose-category thresholds. In other words, covariates shift the probability toward higher or lower dose categories similarly across cut-points. This assumption will be examined in sensitivity analysis by comparing the results with those from a multinomial dose model; see Appendix.
+</p>
+
+### Inverse probability of censoring weights (IPCW)
+
+#### Censoring weight denominator
+
+The **denominator model** described the dropout process conditional on the observed history. It included current dose, current and previous HAMD improvement, current and previous side-effect burden, and baseline covariates:
+
+\[
+\begin{aligned}
+\operatorname{logit}
+\left\{
+\Pr\left(R_{i,t+1} = 1 \mid H_{it}^{C}\right)
+\right\}
+&=
+\gamma_{0}
++ \gamma_{1} f(\mathrm{week}_{it})
++ \gamma_{2} d_{it}
++ \gamma_{3} \Delta Y_{it}
++ \gamma_{4} \Delta Y_{i,t-1} \\
+&\quad
++ \gamma_{5} S_{it}
++ \gamma_{6} S_{i,t-1}
++ \gamma_{7} Y_{i0}
++ \gamma_{8} \mathrm{age}_{i}
++ \gamma_{9} \mathrm{sex}_{i}.
+\end{aligned}
+\]
+where
+
+\[
+H_{it}^{C}
+=
+\left\{
+\mathrm{week}_{it},
+d_{it},
+\Delta Y_{it},
+\Delta Y_{i,t-1},
+S_{it},
+S_{i,t-1},
+Y_{i0},
+\mathrm{age}_{i},
+\mathrm{sex}_{i}
+\right\}.
+\]
+```{r ipcw_denominator_coef_tabs, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+
+#denominator
+ipcw_denominator_models <- lapply(
+  analysis_trials,
+  fit_ipcw_denominator_model
+)
+#numerator
+ipcw_numerator_models <- lapply(
+  analysis_trials,
+  fit_ipcw_numerator_model
+)
+#results
+ipcw_denominator_coef_tabs <- lapply(
+  ipcw_denominator_models,
+  function(model) {
+    coef_tab <- coef(summary(model))
+    cbind(
+      coef_tab,
+      p_value = 2 * pnorm(abs(coef_tab[, "z value"]), lower.tail = FALSE)
+    )
+  }
+)
+
+ipcw_numerator_coef_tabs <- lapply(
+  ipcw_numerator_models,
+  function(model) {
+    coef_tab <- coef(summary(model))
+    cbind(
+      coef_tab,
+      p_value = 2 * pnorm(abs(coef_tab[, "z value"]), lower.tail = FALSE)
+    )
+  }
+)
+
+# add the weigths in the data
+analysis_trials$trial_1 <- add_ipcw_censoring_weights(
+  data = analysis_trials$trial_1,
+  denominator_model = ipcw_denominator_models$trial_1,
+  numerator_model = ipcw_numerator_models$trial_1
+)
+
+
+
+trial_names <- names(ipcw_denominator_coef_tabs)
+
+if (is.null(trial_names)) {
+  trial_names <- paste("Trial", seq_along(ipcw_denominator_coef_tabs))
+}
+
+for (i in seq_along(ipcw_denominator_coef_tabs)) {
+
+  print(
+    knitr::kable(
+      ipcw_denominator_coef_tabs[[i]],
+      digits = 3,
+      caption = paste("Coefficient table for the censoring weight denominator:")
+    )
+  )
+
+  cat("\n\n")
+}
+```
+<p style="text-indent: 0;">
+The denominator predicted probability is
+</p>
+
+\[
+\hat{p}_{it}^{C}
+=
+\widehat{\Pr}
+\left(
+R_{i,t+1} = 1 \mid H_{it}^{C}
+\right).
+\]
+The **numerator model** was used only to stabilize the censoring weights. It excluded the time-varying confounders, while retaining visit, current dose, and baseline covariates:
+
+\[
+\begin{aligned}
+\operatorname{logit}
+\left\{
+\Pr\left(R_{i,t+1} = 1 \mid H_{it}^{C*}\right)
+\right\}
+&=
+\delta_{0}
++ \delta_{1} \mathrm{week}_{it}
++ \delta_{2} d_{it}
++ \delta_{3} Y_{i0}
++ \delta_{4} \mathrm{age}_{i}
++ \delta_{5} \mathrm{sex}_{i}.
+\end{aligned}
+\]
+where
+
+\[
+H_{it}^{C*}
+=
+\left\{
+\mathrm{week}_{it},
+d_{it},
+Y_{i0},
+\mathrm{age}_{i},
+\mathrm{sex}_{i}
+\right\}.
+\]
+
+```{r ipcw_numerator_coef_tabs, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+
+
+trial_names <- names(ipcw_numerator_coef_tabs)
+
+if (is.null(trial_names)) {
+  trial_names <- paste("Trial", seq_along(ipcw_numerator_coef_tabs))
+}
+
+for (i in seq_along(ipcw_numerator_coef_tabs)) {
+
+  print(
+    knitr::kable(
+      ipcw_numerator_coef_tabs[[i]],
+      digits = 3,
+      caption = paste("Coefficient table for the censoring weight denominator:")
+    )
+  )
+
+  cat("\n\n")
+}
+```
+<p style="text-indent: 0;">
+The numerator predicted probability was
+</p>
+
+\[
+\hat{q}_{it}^{C}
+=
+\widehat{\Pr}
+\left(
+R_{i,t+1} = 1 \mid H_{it}^{C*}
+\right).
+\]
+
+#### Stabilized censoring weights
+
+The visit-specific stabilized censoring weight was then calculated as
+\[
+\mathrm{SW}_{it}^{C}
+=
+\frac{\hat{q}_{it}^{C}}{\hat{p}_{it}^{C}}.
+\]
+The cumulative stabilized censoring weight through visit \(t\) was obtained by multiplying the visit-specific censoring weights from the first post-baseline interval up to the current visit:
+
+\[
+\mathrm{cSW}_{it}^{C}
+=
+\prod_{s=1}^{t} \mathrm{SW}_{is}^{C}.
+\]
+The effective sample size after weighting was calculated using the Kish formula:
+
+\[
+\mathrm{ESS}
+=
+\frac{
+\left(
+\sum_{i,t} \mathrm{SW}_{it}^{\mathrm{total}}
+\right)^2
+}{
+\sum_{i,t}
+\left(
+\mathrm{SW}_{it}^{\mathrm{total}}
+\right)^2
+}.
+\]
+```{r ipcw-censoring-weight-summary, echo=FALSE, message=FALSE, warning=FALSE}
+ipcw_weight_summaries <- lapply(
+  analysis_trials,
+  summarise_ipcw_censoring_weights
+)
+
+tab <- ipcw_weight_summaries$trial_1
+
+clean_tab <- data.frame(
+  Measure = c(
+    "Number of patient-visits",
+    "Number of patients",
+    "Mean",
+    "SD",
+    "Minimum",
+    "1st percentile",
+    "5th percentile",
+    "25th percentile",
+    "Median",
+    "75th percentile",
+    "95th percentile",
+    "99th percentile",
+    "Maximum",
+    "Effective sample size"
+  ),
+  `Visit-specific censoring weight` = c(
+    tab$n,
+    tab$n_patients,
+    tab$mean_SW_censoring,
+    tab$sd_SW_censoring,
+    tab$min_SW_censoring,
+    tab$p1_SW_censoring,
+    tab$p5_SW_censoring,
+    tab$p25_SW_censoring,
+    tab$p50_SW_censoring,
+    tab$p75_SW_censoring,
+    tab$p95_SW_censoring,
+    tab$p99_SW_censoring,
+    tab$max_SW_censoring,
+    NA
+  ),
+  `Cumulative censoring weight` = c(
+    tab$n,
+    tab$n_patients,
+    tab$mean_cSW_censoring,
+    tab$sd_cSW_censoring,
+    tab$min_cSW_censoring,
+    tab$p1_cSW_censoring,
+    tab$p5_cSW_censoring,
+    tab$p25_cSW_censoring,
+    tab$p50_cSW_censoring,
+    tab$p75_cSW_censoring,
+    tab$p95_cSW_censoring,
+    tab$p99_cSW_censoring,
+    tab$max_cSW_censoring,
+    tab$ESS_cSW_censoring
+  ),
+  check.names = FALSE
+)
+
+count_rows <- clean_tab$Measure %in% c(
+  "Number of patient-visits",
+  "Number of patients"
+)
+
+display_tab <- clean_tab
+
+for (col in c("Visit-specific censoring weight", "Cumulative censoring weight")) {
+  display_tab[[col]] <- ifelse(
+    is.na(clean_tab[[col]]),
+    "",
+    ifelse(
+      count_rows,
+      as.character(round(clean_tab[[col]], 0)),
+      sprintf("%.3f", clean_tab[[col]])
+    )
+  )
+}
+
+knitr::kable(
+  display_tab,
+  caption = "Summary of visit-specific and cumulative stabilized censoring weights"
+)
+```
+### Total stabilized weights and truncation
+
+The final stabilized weight used in the marginal structural model was obtained by multiplying the cumulative stabilized dose weight and the cumulative stabilized censoring weight for each patient-visit row. This accounts jointly for non-random dose titration and informative censoring up to visit \(t\):
+
+\[
+\mathrm{SW}_{it}^{\mathrm{total}}
+=
+\mathrm{cSW}_{it}^{D}
+\times
+\mathrm{cSW}_{it}^{C}.
+\]
+Weight stability was assessed by examining the distribution of the dose, censoring, and total weights, including their mean, standard deviation, selected percentiles, maximum value, and the effective sample size after truncation. The effective sample size after weighting was calculated using the Kish formula:
+\[
+\mathrm{ESS}
+=
+\frac{
+\left(
+\sum_{i,t} \mathrm{SW}_{it}^{\mathrm{total}}
+\right)^2
+}{
+\sum_{i,t}
+\left(
+\mathrm{SW}_{it}^{\mathrm{total}}
+\right)^2
+}.
+\]
+The total-weight summary describes the final stabilized weights, \(\mathrm{SW}_{it}^{\mathrm{total}}\), obtained by multiplying the cumulative dose and censoring weights.
+```{r total-weight-summary, echo=FALSE, message=FALSE, warning=FALSE}
+
+analysis_trials <- lapply(analysis_trials, add_total_weights)
+
+total_weight_summaries <- lapply(
+  analysis_trials,
+  summarise_total_weights
+)
+
+tab <- total_weight_summaries$trial_1
+
+clean_tab <- data.frame(
+  Measure = c(
+    "Number of patient-visits",
+    "Number of patients",
+    "Mean",
+    "SD",
+    "Minimum",
+    "1st percentile",
+    "5th percentile",
+    "25th percentile",
+    "Median",
+    "75th percentile",
+    "95th percentile",
+    "99th percentile",
+    "Maximum",
+    "Effective sample size"
+  ),
+  `Total stabilized weight` = c(
+    tab$n,
+    tab$n_patients,
+    tab$mean_SW_total,
+    tab$sd_SW_total,
+    tab$min_SW_total,
+    tab$p1_SW_total,
+    tab$p5_SW_total,
+    tab$p25_SW_total,
+    tab$p50_SW_total,
+    tab$p75_SW_total,
+    tab$p95_SW_total,
+    tab$p99_SW_total,
+    tab$max_SW_total,
+    tab$ESS_SW_total
+  ),
+  check.names = FALSE
+)
+
+count_rows <- clean_tab$Measure %in% c(
+  "Number of patient-visits",
+  "Number of patients"
+)
+
+display_tab <- clean_tab
+
+display_tab[["Total stabilized weight"]] <- ifelse(
+  is.na(clean_tab[["Total stabilized weight"]]),
+  "",
+  ifelse(
+    count_rows,
+    as.character(round(clean_tab[["Total stabilized weight"]], 0)),
+    sprintf("%.3f", clean_tab[["Total stabilized weight"]])
+  )
+)
+
+knitr::kable(
+  display_tab,
+  caption = "Summary of total stabilized weights"
+)
+```
+<p style="text-indent: 0;">
+To reduce the influence of extreme weights and improve precision, total stabilized weights were truncated at the 1st and 99th percentiles. The distribution of the truncated weights is summarized below.
+</p>
+
+```{r total-truncated-weight-summary, echo=FALSE, message=FALSE, warning=FALSE}
+analysis_trials <- lapply(
+  analysis_trials,
+  truncate_total_weights
+)
+
+total_truncated_weight_summaries <- lapply(
+  analysis_trials,
+  summarise_total_truncated_weights
+)
+
+tab <- total_truncated_weight_summaries$trial_1
+
+clean_tab <- data.frame(
+  Measure = c(
+    "Number of patient-visits",
+    "Number of patients",
+    "Mean",
+    "SD",
+    "Minimum",
+    "1st percentile",
+    "5th percentile",
+    "25th percentile",
+    "Median",
+    "75th percentile",
+    "95th percentile",
+    "99th percentile",
+    "Maximum",
+    "Effective sample size"
+  ),
+  `Truncated total stabilized weight` = c(
+    tab$n,
+    tab$n_patients,
+    tab$mean_SW_total_truncated,
+    tab$sd_SW_total_truncated,
+    tab$min_SW_total_truncated,
+    tab$p1_SW_total_truncated,
+    tab$p5_SW_total_truncated,
+    tab$p25_SW_total_truncated,
+    tab$p50_SW_total_truncated,
+    tab$p75_SW_total_truncated,
+    tab$p95_SW_total_truncated,
+    tab$p99_SW_total_truncated,
+    tab$max_SW_total_truncated,
+    tab$ESS_SW_total_truncated
+  ),
+  check.names = FALSE
+)
+
+count_rows <- clean_tab$Measure %in% c(
+  "Number of patient-visits",
+  "Number of patients"
+)
+
+display_tab <- clean_tab
+
+display_tab[["Truncated total stabilized weight"]] <- ifelse(
+  is.na(clean_tab[["Truncated total stabilized weight"]]),
+  "",
+  ifelse(
+    count_rows,
+    as.character(round(clean_tab[["Truncated total stabilized weight"]], 0)),
+    sprintf("%.3f", clean_tab[["Truncated total stabilized weight"]])
+  )
+)
+
+knitr::kable(
+  display_tab,
+  caption = "Summary of truncated total stabilized weights"
+)
+```
+
+
+## References
+
+1. J M Robins, M A Hernán, B Brumback. Marginal structural models and causal inference in epidemiology. Epidemiology. 2000 Sep;11(5):550-60. doi: 10.1097/00001648-200009000-00011.
+2. Ilya Lipkovich, David H Adams, Craig Mallinckrodt, Doug Faries, David Baron, John P Houston. Evaluating dose response from flexible dose clinical trials. BMC Psychiatry. 2008 Jan 7;8:3. doi: 10.1186/1471-244X-8-3.
+
+
+## Appendix
+
+### Predicted probabilities under the ordinal dose model
+
+In the primary dose-weight model, dose was modeled as an ordered categorical variable with levels \(20 < 30 < 40 < 50\). For each cumulative dose threshold \(d \in \{20,30,40\}\), the ordinal logistic model was written as
+
+\[
+\log
+\left[
+\frac{
+\Pr(D_{it} \le d \mid H_{it})
+}{
+\ 1-Pr(D_{it} \le d \mid H_{it})
+}
+\right]
+=
+\alpha_{0d} + X_{it}\alpha.
+\]
+Let
+
+\[
+\eta_{it,d} = \alpha_{0d} + X_{it}\alpha.
+\]
+Then
+
+\[
+\log
+\left[
+\frac{
+\Pr(D_{it} \le d \mid H_{it})
+}{
+\ 1- Pr(D_{it} \le d \mid H_{it})
+}
+\right]
+=
+\eta_{it,d}.
+\]
+Exponentiating both sides gives
+
+\[
+\frac{
+\Pr(D_{it} \le d \mid H_{it})
+}{
+\ 1- Pr(D_{it} \le d \mid H_{it})
+}
+=
+\exp(\eta_{it,d}).
+\]
+Let
+
+\[
+F_c =
+\Pr(D_{it} \le d \mid H_{it}).
+\]
+we obtain
+
+\[
+\frac{F_d}{1-F_d}
+=
+\exp(\eta_{it,d}).
+\]
+Solving for \(F_d\) gives
+
+\[
+F_c
+=
+\frac{\exp(\eta_{it,d})}{1+\exp(\eta_{it,d})}
+=
+\frac{1}{1+\exp(-\eta_{it,d})}.
+\]
+Therefore, the ordinal model gives the cumulative predicted probabilities
+
+\[
+F_{20}
+=
+\Pr(D_{it} \le 20 \mid H_{it}),
+\]
+
+\[
+F_{30}
+=
+\Pr(D_{it} \le 30 \mid H_{it}),
+\]
+and
+
+\[
+F_{40}
+=
+\Pr(D_{it} \le 40 \mid H_{it}).
+\]
+The predicted probabilities for the individual dose categories are then obtained as
+
+\[
+\Pr(D_{it}=20 \mid H_{it})
+=
+F_{20},
+\]
+
+\[
+\Pr(D_{it}=30 \mid H_{it})
+=
+F_{30} - F_{20},
+\]
+
+\[
+\Pr(D_{it}=40 \mid H_{it})
+=
+F_{40} - F_{30},
+\]
+and
+
+\[
+\Pr(D_{it}=50 \mid H_{it})
+=
+1 - F_{40}.
+\]
+
+### Alternative multinomial dose model for stabilized dose weights
+
+As a sensitivity analysis to the ordinal dose model, we considered a multinomial logistic regression for the dose-weight models. Unlike the ordinal model, which treats the dose categories as ordered and assumes proportional odds, the multinomial model treats dose as a nominal categorical variable. This allows the associations between patient history and dose assignment to differ across dose levels.
+
+Using 20 mg as the reference category, the denominator multinomial dose model was specified for each non-reference dose \(d \in \{30,40,50\}\) as
+
+\[
+\begin{aligned}
+\log
+\left[
+\frac{
+\Pr(D_{it}=d \mid H_{it})
+}{
+\Pr(D_{it}=20 \mid H_{it})
+}
+\right]
+&=
+\alpha_{0d}
++ \alpha_{1d} f(\mathrm{week}_{it})
++ \alpha_{2d} \Delta Y_{it}
++ \alpha_{3d} S_{it}
++ \alpha_{4d} d_{i,t-1} \\
+&\quad
++ \alpha_{5d} Y_{i0}
+\end{aligned}
+\]
+The fitted multinomial model provides predicted probabilities for all dose categories. For each patient-visit row, the **denominator probability** was the fitted probability corresponding to the dose actually received:
+
+\[
+\hat{p}_{it}^{D,\mathrm{mult}}
+=
+\widehat{\Pr}
+\left(
+D_{it}=d_{it}
+\mid
+H_{it}
+\right).
+\]
+The **numerator dose model** had the same multinomial structure but excluded the time-varying confounders:
+
+\[
+\begin{aligned}
+\log
+\left[
+\frac{
+\Pr(D_{it}=d \mid H_{it}^{*})
+}{
+\Pr(D_{it}=20 \mid H_{it}^{*})
+}
+\right]
+&=
+\beta_{0d}
++ \beta_{1d} f(\mathrm{week}_{it})
++ \beta_{2d} d_{i,t-1}
++ \beta_{3d} Y_{i0} \\
+\end{aligned}
+\]
+The fitted probability corresponding to the observed dose \(d_{it}\) was extracted as
+
+\[
+\hat{q}_{it}^{D,\mathrm{mult}}
+=
+\widehat{\Pr}
+\left(
+D_{it}=d_{it}
+\mid
+H_{it}^{*}
+\right).
+\]
+The visit-specific and cumulative stabilized dose weights were then constructed analogously to the primary ordinal-model analysis:
+
+\[
+\mathrm{SW}_{it}^{D,\mathrm{mult}}
+=
+\frac{
+\hat{q}_{it}^{D,\mathrm{mult}}
+}{
+\hat{p}_{it}^{D,\mathrm{mult}}
+},
+\]
+
+\[
+\mathrm{cSW}_{it}^{D,\mathrm{mult}}
+=
+\prod_{s=1}^{t}
+\mathrm{SW}_{is}^{D,\mathrm{mult}}.
+\]
+
+The multinomial model was used to assess the robustness of the results to relaxing the proportional-odds assumption imposed by the ordinal dose model. Whereas the ordinal model assumes that covariates shift the probability toward higher or lower dose categories similarly across dose thresholds, the multinomial model allows separate covariate effects for each non-reference dose level relative to 20 mg.
+
+#### Predicted probabilities under the multinomial dose model
+
+For a multinomial logit model with \(K\) possible dose categories, one category is chosen as the reference. Let category \(K\) denote the reference category. For each non-reference category \(k = 1,\ldots,K-1\), the model can be written as
+
+\[
+\log
+\left[
+\frac{
+\Pr(Y_i = k \mid X_i)
+}{
+\Pr(Y_i = K \mid X_i)
+}
+\right]
+=
+\beta_k^{\top}X_i.
+\]
+Exponentiating both sides gives
+
+\[
+\Pr(Y_i = k \mid X_i)
+=
+\Pr(Y_i = K \mid X_i)
+\exp(\beta_k^{\top}X_i),
+\qquad
+k = 1,\ldots,K-1.
+\]
+Because the category probabilities must sum to one,
+
+\[
+\begin{aligned}
+\Pr(Y_i = K \mid X_i)
+&=
+1 - \sum_{j=1}^{K-1} \Pr(Y_i = j \mid X_i) \\
+&=
+1 - \sum_{j=1}^{K-1}
+\Pr(Y_i = K \mid X_i)\exp(\beta_j^{\top}X_i).
+\end{aligned}
+\]
+Therefore,
+
+\[
+\begin{aligned}
+\Pr(Y_i = K \mid X_i)
++
+\Pr(Y_i = K \mid X_i)
+\sum_{j=1}^{K-1}\exp(\beta_j^{\top}X_i)
+&=
+1, \\
+\Pr(Y_i = K \mid X_i)
+\left[
+1 + \sum_{j=1}^{K-1}\exp(\beta_j^{\top}X_i)
+\right]
+&=
+1.
+\end{aligned}
+\]
+Thus,
+
+\[
+\Pr(Y_i = K \mid X_i)
+=
+\frac{
+1
+}{
+1 + \sum_{j=1}^{K-1}\exp(\beta_j^{\top}X_i)
+}.
+\]
+For the reference category,
+
+\[
+\Pr(Y_i = K \mid X_i)
+=
+\frac{
+1
+}{
+1 + \sum_{j=1}^{K-1} \exp(\beta_j^{\top}X_i)
+}.
+\]
+For each non-reference category \(k = 1,\ldots,K-1\), we obtain
+
+\[
+\Pr(Y_i = k \mid X_i)
+=
+\frac{
+\exp(\beta_k^{\top}X_i)
+}{
+1 + \sum_{j=1}^{K-1}\exp(\beta_j^{\top}X_i)
+},
+\qquad
+1 \le k < K.
+\]
+Thus, the multinomial model estimates log-odds relative to the reference dose category. It also relies on the independence of irrelevant alternatives assumption, meaning that the odds comparing two dose categories are assumed not to depend on the presence or characteristics of the other dose categories.
