@@ -1,6 +1,27 @@
 Flexible dose-response models
 ================
 
+- [Clinical outcome, safety measure, time-varying confounders, and
+  dataset](#clinical-outcome-safety-measure-time-varying-confounders-and-dataset)
+- [Notation](#notation)
+- [Step 1 - Inverse probability of dose and censoring weighting
+  (IPDCW)](#step-1---inverse-probability-of-dose-and-censoring-weighting-ipdcw)
+  - [Inverse probability of dose weights
+    (IPTW)](#inverse-probability-of-dose-weights-iptw)
+  - [Inverse probability of censoring weights
+    (IPCW)](#inverse-probability-of-censoring-weights-ipcw)
+  - [Total stabilized weights and
+    truncation](#total-stabilized-weights-and-truncation)
+- [Step 2 - Weighted repeated-measures marginal structural model
+  MSM](#step-2---weighted-repeated-measures-marginal-structural-model-msm)
+- [Predictions](#predictions)
+- [References](#references)
+- [Appendix](#appendix)
+  - [Predicted probabilities under the ordinal dose
+    model](#predicted-probabilities-under-the-ordinal-dose-model)
+  - [Alternative multinomial dose model for stabilized dose
+    weights](#alternative-multinomial-dose-model-for-stabilized-dose-weights)
+
 <style type="text/css">
 #TOC {
   margin: 25px 0px 20px 0px;
@@ -10,8 +31,6 @@ Flexible dose-response models
   max-width: 450px;
 }
 </style>
-
-<div align="justify">
 
 ## Clinical outcome, safety measure, time-varying confounders, and dataset
 
@@ -115,16 +134,6 @@ because actual visit days varied considerably across patients.
 Distribution of actual visit days by patient visit order
 
 ## Notation
-
-.notation-table { width: 100%; border-collapse: collapse; font-family:
-“Times New Roman”, Times, serif; color: \#000000; font-size: 16px; }
-
-.notation-table th { text-align: left; border-top: 1px solid \#000000;
-border-bottom: 1px solid \#000000; padding: 4px 8px; }
-
-.notation-table td { vertical-align: top; padding: 4px 8px; }
-
-.notation-table td:first-child { width: 35%; white-space: nowrap; }
 
 <table class="notation-table">
 <thead>
@@ -1169,5 +1178,3 @@ dose categories are assumed not to depend on the presence or
 characteristics of the other dose categories.
 
 rmarkdown::render(“README.Rmd”)
-
-</div>
