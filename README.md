@@ -20,9 +20,7 @@ Rating Scale (HAMD) score, denoted by $Y_{it}$, measured for patient $i$
 at visit $t$. The baseline HAMD score was denoted by $Y_{i0}$. Treatment
 response was expressed as improvement from baseline: $$
 \Delta Y_{it} = Y_{i0} - Y_{it}
-$$
-
-Thus, positive values of $ΔY_{it}$ indicate improvement. Safety was
+$$ Thus, positive values of $ΔY_{it}$ indicate improvement. Safety was
 summarized at each visit using a side-effect score $S_{it}$, measured on
 a 0–10 scale, where higher values indicate a greater number of side
 effects reported by the patient.
@@ -47,10 +45,8 @@ Summary statistics for efficacy and side-effects are shown below.
 | HAMD improvement | 695 | 6.58 | 9.05 | -16.75 |   4.44 | 40.98 |
 | Side-effect      | 996 | 3.29 | 3.32 |   0.00 |   3.00 | 10.00 |
 
-<p style="text-indent: 0;">
 Side-effect values were simulated and intentionally generated to have a
 weak negative association with dose.
-</p>
 
 ![](README_files/figure-gfm/unnamed-chunk-2-1.png)<!-- -->
 
@@ -101,10 +97,8 @@ Number of patient-visits by dose and visit in weeks
 
 Dose titration by visit in weeks: previous dose versus current dose
 
-<p style="text-indent: 0;">
 In these data, the ordered visit index was not used as the time scale
 because actual visit days varied considerably across patients.
-</p>
 
 | Patient visit order | Number of patients | Minimum day | Median day | Mean day | Maximum day |
 |---:|---:|---:|---:|---:|---:|
@@ -122,29 +116,16 @@ Distribution of actual visit days by patient visit order
 
 ## Notation
 
-<style>
-.notation-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-family: "Times New Roman", Times, serif;
-  color: #000000;
-  font-size: 16px;
-}
-&#10;.notation-table th {
-  text-align: left;
-  border-top: 1px solid #000000;
-  border-bottom: 1px solid #000000;
-  padding: 4px 8px;
-}
-&#10;.notation-table td {
-  vertical-align: top;
-  padding: 4px 8px;
-}
-&#10;.notation-table td:first-child {
-  width: 35%;
-  white-space: nowrap;
-}
-</style>
+.notation-table { width: 100%; border-collapse: collapse; font-family:
+“Times New Roman”, Times, serif; color: \#000000; font-size: 16px; }
+
+.notation-table th { text-align: left; border-top: 1px solid \#000000;
+border-bottom: 1px solid \#000000; padding: 4px 8px; }
+
+.notation-table td { vertical-align: top; padding: 4px 8px; }
+
+.notation-table td:first-child { width: 35%; white-space: nowrap; }
+
 <table class="notation-table">
 <thead>
 <tr>
@@ -378,9 +359,7 @@ $$
 + \alpha_6 d_{i,t-1}S_{it}
 + \alpha_7 Y_{i0}.
 \end{aligned}
-$$ where
-
-$$
+$$ where $$
 H_{it} =
 \left\{
 \mathrm{week}_{it},
@@ -413,7 +392,6 @@ visit distribution.
 
 Coefficient table for the dose weight denominator:
 
-<p style="text-indent: 0;">
 A **positive coefficient** means that higher values of that variable are
 associated with a higher probability of receiving a higher dose, whereas
 a **negative coefficient** means that higher values of that variable are
@@ -421,7 +399,6 @@ associated with a higher probability of receiving a lower dose. After
 fitting the ordinal model, predicted probabilities were obtained for
 each dose category. The denominator probability used in the dose weight
 was the fitted probability of the dose actually received:
-</p>
 
 $$
 \hat{p}_{it}^{D}
@@ -480,10 +457,8 @@ $$
 
 Coefficient table for the dose weight numerator:
 
-<p style="text-indent: 0;">
 The fitted probability corresponding to the observed dose $d_{it}$ was
 extracted as
-</p>
 
 $$
 \hat{q}_{it}^{D}
@@ -528,14 +503,12 @@ $$
 
 Summary of visit-specific and cumulative stabilized dose weights
 
-<p style="text-indent: 0;">
 Note: The ordinal dose model assumes proportional odds, meaning that the
 covariates have a common effect across the cumulative dose-category
 thresholds. In other words, covariates shift the probability toward
 higher or lower dose categories similarly across cut-points. This
 assumption will be examined in sensitivity analysis by comparing the
 results with those from a multinomial dose model; see Appendix.
-</p>
 
 ### Inverse probability of censoring weights (IPCW)
 
@@ -598,9 +571,7 @@ $$
 
 Coefficient table for the censoring weight denominator:
 
-<p style="text-indent: 0;">
 The denominator predicted probability is
-</p>
 
 $$
 \hat{p}_{it}^{C}
@@ -656,9 +627,7 @@ $$
 
 Coefficient table for the censoring weight denominator:
 
-<p style="text-indent: 0;">
 The numerator predicted probability was
-</p>
 
 $$
 \hat{q}_{it}^{C}
@@ -774,11 +743,9 @@ cumulative dose and censoring weights.
 
 Summary of total stabilized weights
 
-<p style="text-indent: 0;">
 To reduce the influence of extreme weights and improve precision, total
 stabilized weights were truncated at the 1st and 99th percentiles. The
 distribution of the truncated weights is summarized below.
-</p>
 
 | Measure                  | Truncated total stabilized weight |
 |:-------------------------|:----------------------------------|
@@ -862,8 +829,6 @@ history included in the weight models.
 | avg_dose_before_lag3            |   -0.028 |   0.158 |   0.032 |       0.857 |
 
 Weighted marginal structural model for HAMD improvement
-
-<p style="text-indent: 0;">
 
 Interpretation: If a dose coefficient is positive: then higher previous
 dose is associated with greater HAMD improvement. If a dose coefficient
