@@ -351,14 +351,21 @@ less than or equal to d.
 
 ``` math
 \begin{aligned}
-\operatorname{logit}\left\{\Pr(D_{it} \le c \mid H_{it})\right\}
+\mathrm{logit}
+\left\{
+\Pr(D_{it} \le c \mid H_{it})
+\right\}
 &=
-\log\left[
-\frac{\Pr(D_{it} \le d \mid H_{it})}
-{1 - \Pr(D_{it} \le d \mid H_{it})}
+\log
+\left[
+\frac{
+\Pr(D_{it} \le c \mid H_{it})
+}{
+1 - \Pr(D_{it} \le c \mid H_{it})
+}
 \right] \\
 &=
-\alpha_{0d}
+\alpha_{0c}
 + \alpha_1 f(\mathrm{week}_{it})
 + \alpha_2 \Delta Y_{it}
 + \alpha_3 S_{it}
@@ -373,7 +380,8 @@ less than or equal to d.
 where
 
 ``` math
-H_{it} =
+H_{it}
+=
 \left\{
 \mathrm{week}_{it},
 \Delta Y_{it},
@@ -382,7 +390,7 @@ d_{i,t-1},
 d_{i,t-1}S_{it},
 d_{i,t-1}\Delta Y_{it},
 Y_{i0}
-\right\}
+\right\}.
 ```
 
 is the observed history available for patient $i$ before the dose
