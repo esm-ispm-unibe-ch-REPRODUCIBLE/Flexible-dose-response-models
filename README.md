@@ -22,16 +22,6 @@ Flexible dose-response models
   - [Alternative multinomial dose model for stabilized dose
     weights](#alternative-multinomial-dose-model-for-stabilized-dose-weights)
 
-<style type="text/css">
-#TOC {
-  margin: 25px 0px 20px 0px;
-}
-&#10;div.tocify {
-  width: 40%;
-  max-width: 450px;
-}
-</style>
-
 ## Clinical outcome, safety measure, time-varying confounders, and dataset
 
 The clinical outcome of the included study is the Hamilton Depression
