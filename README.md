@@ -16,11 +16,6 @@ Flexible dose-response models
   MSM](#step-2---weighted-repeated-measures-marginal-structural-model-msm)
 - [Predictions](#predictions)
 - [References](#references)
-- [Appendix](#appendix)
-  - [Predicted probabilities under the ordinal dose
-    model](#predicted-probabilities-under-the-ordinal-dose-model)
-  - [Alternative multinomial dose model for stabilized dose
-    weights](#alternative-multinomial-dose-model-for-stabilized-dose-weights)
 
 <style type="text/css">
 #TOC {
@@ -436,8 +431,7 @@ The **numerator model** is like the denominator model, except that all
 potential time-dependent confounders were excluded, namely improvement
 from baseline and side-effect severity. Let
 
-```` markdown
-```math
+``` math
 H_{it}^{*}
 =
 \left\{
@@ -449,7 +443,7 @@ Y_{i0}
 
 denotes the reduced observed history.
 
-```math
+``` math
 \begin{aligned}
 \mathrm{logit}
 \left\{
@@ -471,7 +465,6 @@ denotes the reduced observed history.
 + \beta_{3} Y_{i0}.
 \end{aligned}
 ```
-````
 
 |                            |  Value | Std. Error | t value | p_value |
 |:---------------------------|-------:|-----------:|--------:|--------:|
@@ -835,8 +828,7 @@ earlier visits before $t-3$, when available.
 
 The weighted marginal structural model was specified as
 
-```` markdown
-```math
+``` math
 \Delta Y_{it}
 =
 \eta_{0}
@@ -848,7 +840,6 @@ The weighted marginal structural model was specified as
 + \eta_{6} \bar{d}_{i,<t-3}
 + \varepsilon_{it}.
 ```
-````
 
 The term $f(\mathrm{week}_{it})$ denotes a restricted cubic spline
 function of actual study week, with three knots at the 10th, 50th, and
@@ -867,14 +858,14 @@ history included in the weight models.
 
 | Term                            | Estimate | Std.err |    Wald | Pr(\>\|W\|) |
 |:--------------------------------|---------:|--------:|--------:|------------:|
-| (Intercept)                     |  -28.516 |   3.718 |  58.813 |       0.000 |
-| rms::rcs(visit, visit_df)visit  |    3.822 |   0.706 |  29.279 |       0.000 |
-| rms::rcs(visit, visit_df)visit’ |   -3.304 |   1.068 |   9.566 |       0.002 |
-| outcome_0                       |    1.086 |   0.101 | 116.290 |       0.000 |
-| dose_lag1                       |   -0.059 |   0.060 |   0.965 |       0.326 |
-| dose_lag2                       |   -0.069 |   0.069 |   1.008 |       0.315 |
-| dose_lag3                       |    0.060 |   0.126 |   0.223 |       0.636 |
-| avg_dose_before_lag3            |   -0.028 |   0.158 |   0.032 |       0.857 |
+| (Intercept)                     |  -28.422 |   3.664 |  60.172 |       0.000 |
+| rms::rcs(visit, visit_df)visit  |    3.785 |   0.713 |  28.146 |       0.000 |
+| rms::rcs(visit, visit_df)visit’ |   -3.427 |   1.219 |   7.902 |       0.005 |
+| outcome_0                       |    1.084 |   0.100 | 116.778 |       0.000 |
+| dose_lag1                       |   -0.059 |   0.060 |   0.946 |       0.331 |
+| dose_lag2                       |   -0.070 |   0.068 |   1.047 |       0.306 |
+| dose_lag3                       |    0.030 |   0.057 |   0.276 |       0.599 |
+| avg_dose_before_lag3            |    0.030 |   0.079 |   0.148 |       0.700 |
 
 Weighted marginal structural model for HAMD improvement
 
@@ -889,12 +880,12 @@ improvement.
 
 | contrast | target_visit | estimate | se | lower_95 | upper_95 | p_value |
 |:---|---:|---:|---:|---:|---:|---:|
-| Always 30 mg vs always 20 mg | 8 | -0.922 | 0.602 | -2.101 | 0.257 | 0.125 |
-| Always 40 mg vs always 20 mg | 8 | -1.844 | 1.203 | -4.202 | 0.514 | 0.125 |
-| Always 50 mg vs always 20 mg | 8 | -2.766 | 1.805 | -6.303 | 0.771 | 0.125 |
-| Always 40 mg vs always 30 mg | 8 | -0.922 | 0.602 | -2.101 | 0.257 | 0.125 |
-| Always 50 mg vs always 30 mg | 8 | -1.844 | 1.203 | -4.202 | 0.514 | 0.125 |
-| Always 50 mg vs always 40 mg | 8 | -0.922 | 0.602 | -2.101 | 0.257 | 0.125 |
+| Always 30 mg vs always 20 mg | 8 | -0.733 | 0.653 | -2.012 | 0.546 | 0.262 |
+| Always 40 mg vs always 20 mg | 8 | -1.465 | 1.305 | -4.023 | 1.093 | 0.262 |
+| Always 50 mg vs always 20 mg | 8 | -2.198 | 1.958 | -6.035 | 1.639 | 0.262 |
+| Always 40 mg vs always 30 mg | 8 | -0.733 | 0.653 | -2.012 | 0.546 | 0.262 |
+| Always 50 mg vs always 30 mg | 8 | -1.465 | 1.305 | -4.023 | 1.093 | 0.262 |
+| Always 50 mg vs always 40 mg | 8 | -0.733 | 0.653 | -2.012 | 0.546 | 0.262 |
 
 Pairwise estimated dose-strategy contrasts at week 8
 
@@ -908,131 +899,141 @@ Pairwise estimated dose-strategy contrasts at week 8
     dose clinical trials. BMC Psychiatry. 2008 Jan 7;8:3. doi:
     10.1186/1471-244X-8-3.
 
+```` markdown
 ## Appendix
 
 ### Predicted probabilities under the ordinal dose model
 
-In the primary dose-weight model, dose was modeled as an ordered
-categorical variable with levels $20 < 30 < 40 < 50$. For each
-cumulative dose threshold $d \in \{20,30,40\}$, the ordinal logistic
-model was written as
+In the primary dose-weight model, dose was modeled as an ordered categorical variable with levels $20 < 30 < 40 < 50$. For each cumulative dose threshold $c \in \{20,30,40\}$, the ordinal logistic model was written as
 
-$$
+```math
 \log
 \left[
 \frac{
-\Pr(D_{it} \le d \mid H_{it})
+\Pr(D_{it} \le c \mid H_{it})
 }{
-\ 1-Pr(D_{it} \le d \mid H_{it})
+1 - \Pr(D_{it} \le c \mid H_{it})
 }
 \right]
 =
-\alpha_{0d} + X_{it}\alpha.
-$$ Let
+\alpha_{0c} + X_{it}\alpha.
+```
 
-$$
-\eta_{it,d} = \alpha_{0d} + X_{it}\alpha.
-$$ Then
+Let
 
-$$
+```math
+\eta_{it,c} = \alpha_{0c} + X_{it}\alpha.
+```
+
+Then
+
+```math
 \log
 \left[
 \frac{
-\Pr(D_{it} \le d \mid H_{it})
+\Pr(D_{it} \le c \mid H_{it})
 }{
-\ 1- Pr(D_{it} \le d \mid H_{it})
+1 - \Pr(D_{it} \le c \mid H_{it})
 }
 \right]
 =
-\eta_{it,d}.
-$$ Exponentiating both sides gives
+\eta_{it,c}.
+```
 
-$$
+Exponentiating both sides gives
+
+```math
 \frac{
-\Pr(D_{it} \le d \mid H_{it})
+\Pr(D_{it} \le c \mid H_{it})
 }{
-\ 1- Pr(D_{it} \le d \mid H_{it})
+1 - \Pr(D_{it} \le c \mid H_{it})
 }
 =
-\exp(\eta_{it,d}).
-$$ Let
+\exp(\eta_{it,c}).
+```
 
-$$
+Let
+
+```math
 F_c =
-\Pr(D_{it} \le d \mid H_{it}).
-$$ we obtain
+\Pr(D_{it} \le c \mid H_{it}).
+```
 
-$$
-\frac{F_d}{1-F_d}
+Then
+
+```math
+\frac{F_c}{1-F_c}
 =
-\exp(\eta_{it,d}).
-$$ Solving for $F_d$ gives
+\exp(\eta_{it,c}).
+```
 
-$$
+Solving for $F_c$ gives
+
+```math
 F_c
 =
-\frac{\exp(\eta_{it,d})}{1+\exp(\eta_{it,d})}
+\frac{\exp(\eta_{it,c})}{1+\exp(\eta_{it,c})}
 =
-\frac{1}{1+\exp(-\eta_{it,d})}.
-$$ Therefore, the ordinal model gives the cumulative predicted
-probabilities
+\frac{1}{1+\exp(-\eta_{it,c})}.
+```
 
-$$
+Therefore, the ordinal model gives the cumulative predicted probabilities
+
+```math
 F_{20}
 =
 \Pr(D_{it} \le 20 \mid H_{it}),
-$$
+```
 
-$$
+```math
 F_{30}
 =
 \Pr(D_{it} \le 30 \mid H_{it}),
-$$ and
+```
 
-$$
+and
+
+```math
 F_{40}
 =
 \Pr(D_{it} \le 40 \mid H_{it}).
-$$ The predicted probabilities for the individual dose categories are
-then obtained as
+```
 
-$$
+The predicted probabilities for the individual dose categories are then obtained as
+
+```math
 \Pr(D_{it}=20 \mid H_{it})
 =
 F_{20},
-$$
+```
 
-$$
+```math
 \Pr(D_{it}=30 \mid H_{it})
 =
 F_{30} - F_{20},
-$$
+```
 
-$$
+```math
 \Pr(D_{it}=40 \mid H_{it})
 =
 F_{40} - F_{30},
-$$ and
+```
 
-$$
+and
+
+```math
 \Pr(D_{it}=50 \mid H_{it})
 =
 1 - F_{40}.
-$$
+```
 
 ### Alternative multinomial dose model for stabilized dose weights
 
-As a sensitivity analysis to the ordinal dose model, we considered a
-multinomial logistic regression for the dose-weight models. Unlike the
-ordinal model, which treats the dose categories as ordered and assumes
-proportional odds, the multinomial model treats dose as a nominal
-categorical variable. This allows the associations between patient
-history and dose assignment to differ across dose levels.
+As a sensitivity analysis to the ordinal dose model, we considered a multinomial logistic regression for the dose-weight models. Unlike the ordinal model, which treats the dose categories as ordered and assumes proportional odds, the multinomial model treats dose as a nominal categorical variable. This allows the associations between patient history and dose assignment to differ across dose levels.
 
-Using 20 mg as the reference category, the denominator multinomial dose
-model was specified for each non-reference dose $d \in \{30,40,50\}$ as
+Using 20 mg as the reference category, the denominator multinomial dose model was specified for each non-reference dose $d \in \{30,40,50\}$ as
 
-$$
+```math
 \begin{aligned}
 \log
 \left[
@@ -1049,14 +1050,13 @@ $$
 + \alpha_{3d} S_{it}
 + \alpha_{4d} d_{i,t-1} \\
 &\quad
-+ \alpha_{5d} Y_{i0}
++ \alpha_{5d} Y_{i0}.
 \end{aligned}
-$$ The fitted multinomial model provides predicted probabilities for all
-dose categories. For each patient-visit row, the **denominator
-probability** was the fitted probability corresponding to the dose
-actually received:
+```
 
-$$
+The fitted multinomial model provides predicted probabilities for all dose categories. For each patient-visit row, the **denominator probability** was the fitted probability corresponding to the dose actually received:
+
+```math
 \hat{p}_{it}^{D,\mathrm{mult}}
 =
 \widehat{\Pr}
@@ -1065,10 +1065,11 @@ D_{it}=d_{it}
 \mid
 H_{it}
 \right).
-$$ The **numerator dose model** had the same multinomial structure but
-excluded the time-varying confounders:
+```
 
-$$
+The **numerator dose model** had the same multinomial structure but excluded the time-varying confounders:
+
+```math
 \begin{aligned}
 \log
 \left[
@@ -1082,12 +1083,13 @@ $$
 \beta_{0d}
 + \beta_{1d} f(\mathrm{week}_{it})
 + \beta_{2d} d_{i,t-1}
-+ \beta_{3d} Y_{i0} \\
++ \beta_{3d} Y_{i0}.
 \end{aligned}
-$$ The fitted probability corresponding to the observed dose $d_{it}$
-was extracted as
+```
 
-$$
+The fitted probability corresponding to the observed dose $d_{it}$ was extracted as
+
+```math
 \hat{q}_{it}^{D,\mathrm{mult}}
 =
 \widehat{\Pr}
@@ -1096,41 +1098,34 @@ D_{it}=d_{it}
 \mid
 H_{it}^{*}
 \right).
-$$ The visit-specific and cumulative stabilized dose weights were then
-constructed analogously to the primary ordinal-model analysis:
+```
 
-$$
+The visit-specific and cumulative stabilized dose weights were then constructed analogously to the primary ordinal-model analysis:
+
+```math
 \mathrm{SW}_{it}^{D,\mathrm{mult}}
 =
 \frac{
 \hat{q}_{it}^{D,\mathrm{mult}}
 }{
 \hat{p}_{it}^{D,\mathrm{mult}}
-},
-$$
+}.
+```
 
-$$
+```math
 \mathrm{cSW}_{it}^{D,\mathrm{mult}}
 =
 \prod_{s=1}^{t}
 \mathrm{SW}_{is}^{D,\mathrm{mult}}.
-$$
+```
 
-The multinomial model was used to assess the robustness of the results
-to relaxing the proportional-odds assumption imposed by the ordinal dose
-model. Whereas the ordinal model assumes that covariates shift the
-probability toward higher or lower dose categories similarly across dose
-thresholds, the multinomial model allows separate covariate effects for
-each non-reference dose level relative to 20 mg.
+The multinomial model was used to assess the robustness of the results to relaxing the proportional-odds assumption imposed by the ordinal dose model. Whereas the ordinal model assumes that covariates shift the probability toward higher or lower dose categories similarly across dose thresholds, the multinomial model allows separate covariate effects for each non-reference dose level relative to 20 mg.
 
 #### Predicted probabilities under the multinomial dose model
 
-For a multinomial logit model with $K$ possible dose categories, one
-category is chosen as the reference. Let category $K$ denote the
-reference category. For each non-reference category $k = 1,\ldots,K-1$,
-the model can be written as
+For a multinomial logit model with $K$ possible dose categories, one category is chosen as the reference. Let category $K$ denote the reference category. For each non-reference category $k = 1,\ldots,K-1$, the model can be written as
 
-$$
+```math
 \log
 \left[
 \frac{
@@ -1141,18 +1136,22 @@ $$
 \right]
 =
 \beta_k^{\top}X_i.
-$$ Exponentiating both sides gives
+```
 
-$$
+Exponentiating both sides gives
+
+```math
 \Pr(Y_i = k \mid X_i)
 =
 \Pr(Y_i = K \mid X_i)
 \exp(\beta_k^{\top}X_i),
 \qquad
 k = 1,\ldots,K-1.
-$$ Because the category probabilities must sum to one,
+```
 
-$$
+Because the category probabilities must sum to one,
+
+```math
 \begin{aligned}
 \Pr(Y_i = K \mid X_i)
 &=
@@ -1161,9 +1160,11 @@ $$
 1 - \sum_{j=1}^{K-1}
 \Pr(Y_i = K \mid X_i)\exp(\beta_j^{\top}X_i).
 \end{aligned}
-$$ Therefore,
+```
 
-$$
+Therefore,
+
+```math
 \begin{aligned}
 \Pr(Y_i = K \mid X_i)
 +
@@ -1178,9 +1179,11 @@ $$
 &=
 1.
 \end{aligned}
-$$ Thus,
+```
 
-$$
+Thus, for the reference category,
+
+```math
 \Pr(Y_i = K \mid X_i)
 =
 \frac{
@@ -1188,19 +1191,11 @@ $$
 }{
 1 + \sum_{j=1}^{K-1}\exp(\beta_j^{\top}X_i)
 }.
-$$ For the reference category,
+```
 
-$$
-\Pr(Y_i = K \mid X_i)
-=
-\frac{
-1
-}{
-1 + \sum_{j=1}^{K-1} \exp(\beta_j^{\top}X_i)
-}.
-$$ For each non-reference category $k = 1,\ldots,K-1$, we obtain
+For each non-reference category $k = 1,\ldots,K-1$, we obtain
 
-$$
+```math
 \Pr(Y_i = k \mid X_i)
 =
 \frac{
@@ -1210,10 +1205,9 @@ $$
 },
 \qquad
 1 \le k < K.
-$$ Thus, the multinomial model estimates log-odds relative to the
-reference dose category. It also relies on the independence of
-irrelevant alternatives assumption, meaning that the odds comparing two
-dose categories are assumed not to depend on the presence or
-characteristics of the other dose categories.
+```
+
+Thus, the multinomial model estimates log-odds relative to the reference dose category. It also relies on the independence of irrelevant alternatives assumption, meaning that the odds comparing two dose categories are assumed not to depend on the presence or characteristics of the other dose categories.
+````
 
 rmarkdown::render(“README.Rmd”)
