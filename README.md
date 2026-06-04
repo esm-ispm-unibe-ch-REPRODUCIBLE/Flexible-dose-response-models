@@ -349,7 +349,7 @@ an ordered categorical variable (20\<30\<40\<50). For each threshold
 d∈{20,30,40}, we modelled the cumulative probability of receiving a dose
 less than or equal to d.
 
-$$
+``` math
 \begin{aligned}
 \operatorname{logit}\left\{\Pr(D_{it} \le c \mid H_{it})\right\}
 &=
@@ -368,7 +368,11 @@ $$
 + \alpha_6 d_{i,t-1}S_{it}
 + \alpha_7 Y_{i0}.
 \end{aligned}
-$$ where $$
+```
+
+where
+
+``` math
 H_{it} =
 \left\{
 \mathrm{week}_{it},
@@ -379,7 +383,9 @@ d_{i,t-1}S_{it},
 d_{i,t-1}\Delta Y_{it},
 Y_{i0}
 \right\}
-$$ is the observed history available for patient $i$ before the dose
+```
+
+is the observed history available for patient $i$ before the dose
 assignment at visit $t$. The term $f(\mathrm{week}_{it})$ denotes a
 restricted cubic spline function of actual study week, specified with
 three knots at the 10th, 50th, and 90th percentiles of the observed
