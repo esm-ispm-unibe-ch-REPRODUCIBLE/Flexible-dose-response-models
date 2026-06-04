@@ -66,7 +66,6 @@ Summary statistics for efficacy and side-effects are shown below.
 
 Side-effect values were simulated and intentionally generated to have a
 weak negative association with dose.
-
 ![](README_files/figure-gfm/unnamed-chunk-2-1.png)<!-- -->
 
 | visit |  20 |  30 |  40 |  50 |
@@ -423,11 +422,11 @@ fitting the ordinal model, predicted probabilities were obtained for
 each dose category. The denominator probability used in the dose weight
 was the fitted probability of the dose actually received:
 
-$$
+``` math
 \hat{p}_{it}^{D}
 =
-\widehat{\Pr}\left(D_{it} = d_{it} \mid H_{it}\right).
-$$
+\widehat{\Pr}\!\left(D_{it} = d_{it} \mid H_{it}\right).
+```
 
 ![](README_files/figure-gfm/predicted-dose-probabilities-prev-dose-20-1.png)<!-- -->
 
@@ -437,7 +436,8 @@ The **numerator model** is like the denominator model, except that all
 potential time-dependent confounders were excluded, namely improvement
 from baseline and side-effect severity. Let
 
-$$
+```` markdown
+```math
 H_{it}^{*}
 =
 \left\{
@@ -445,9 +445,13 @@ H_{it}^{*}
 d_{i,t-1},
 Y_{i0}
 \right\}
-$$ denote the reduced observed history. $$
+```
+
+denotes the reduced observed history.
+
+```math
 \begin{aligned}
-\operatorname{logit}
+\mathrm{logit}
 \left\{
 \Pr\left(D_{it} \le c \mid H_{it}^{*}\right)
 \right\}
@@ -457,7 +461,7 @@ $$ denote the reduced observed history. $$
 \frac{
 \Pr\left(D_{it} \le c \mid H_{it}^{*}\right)
 }{
-\ 1-Pr\left(D_{it} \le c \mid H_{it}^{*}\right)
+1 - \Pr\left(D_{it} \le c \mid H_{it}^{*}\right)
 }
 \right] \\
 &=
@@ -466,7 +470,8 @@ $$ denote the reduced observed history. $$
 + \beta_{2} d_{i,t-1}
 + \beta_{3} Y_{i0}.
 \end{aligned}
-$$
+```
+````
 
 |                            |  Value | Std. Error | t value | p_value |
 |:---------------------------|-------:|-----------:|--------:|--------:|
@@ -483,29 +488,31 @@ Coefficient table for the dose weight numerator:
 The fitted probability corresponding to the observed dose $d_{it}$ was
 extracted as
 
-$$
+``` math
 \hat{q}_{it}^{D}
 =
 \widehat{\Pr}\left(D_{it} = d_{it} \mid H_{it}^{*}\right).
-$$
+```
 
 #### Stabilized dose weights
 
 The visit-specific stabilized dose weight was then calculated as
 
-$$
+``` math
 \mathrm{SW}_{it}^{D}
 =
 \frac{\hat{q}_{it}^{D}}{\hat{p}_{it}^{D}}.
-$$ The cumulative stabilized dose weight through visit $t$ was obtained
-by multiplying the visit-specific weights from the first post-baseline
+```
+
+The cumulative stabilized dose weight through visit $t$ was obtained by
+multiplying the visit-specific weights from the first post-baseline
 visit up to the current visit:
 
-$$
+``` math
 \mathrm{cSW}_{it}^{D}
 =
 \prod_{s=1}^{t} \mathrm{SW}_{is}^{D}.
-$$
+```
 
 | Measure                  | Visit-specific dose weight | Cumulative dose weight |
 |:-------------------------|:---------------------------|:-----------------------|
@@ -542,9 +549,9 @@ the observed history. It included current dose, current and previous
 HAMD improvement, current and previous side-effect scores, and baseline
 covariates:
 
-$$
+``` math
 \begin{aligned}
-\operatorname{logit}
+\mathrm{logit}
 \left\{
 \Pr\left(R_{i,t+1} = 1 \mid H_{it}^{C}\right)
 \right\}
@@ -561,9 +568,11 @@ $$
 + \gamma_{8} \mathrm{age}_{i}
 + \gamma_{9} \mathrm{sex}_{i}.
 \end{aligned}
-$$ where
+```
 
-$$
+where
+
+``` math
 H_{it}^{C}
 =
 \left\{
@@ -577,7 +586,7 @@ Y_{i0},
 \mathrm{age}_{i},
 \mathrm{sex}_{i}
 \right\}.
-$$
+```
 
 |                    | Estimate | Std. Error | z value | Pr(\>\|z\|) | p_value |
 |:-------------------|---------:|-----------:|--------:|------------:|--------:|
@@ -596,14 +605,14 @@ Coefficient table for the censoring weight denominator:
 
 The denominator predicted probability is
 
-$$
+``` math
 \hat{p}_{it}^{C}
 =
 \widehat{\Pr}
 \left(
 R_{i,t+1} = 1 \mid H_{it}^{C}
 \right).
-$$
+```
 
 #### Censoring weight numerator
 
@@ -611,9 +620,9 @@ The **numerator model** was used only to stabilize the censoring
 weights. It excluded the time-varying confounders, while retaining
 visit, current dose, and baseline covariates:
 
-$$
+``` math
 \begin{aligned}
-\operatorname{logit}
+\mathrm{logit}
 \left\{
 \Pr\left(R_{i,t+1} = 1 \mid H_{it}^{C*}\right)
 \right\}
@@ -625,9 +634,11 @@ $$
 + \delta_{4} \mathrm{age}_{i}
 + \delta_{5} \mathrm{sex}_{i}.
 \end{aligned}
-$$ where
+```
 
-$$
+where
+
+``` math
 H_{it}^{C*}
 =
 \left\{
@@ -637,7 +648,7 @@ Y_{i0},
 \mathrm{age}_{i},
 \mathrm{sex}_{i}
 \right\}.
-$$
+```
 
 |             | Estimate | Std. Error | z value | Pr(\>\|z\|) | p_value |
 |:------------|---------:|-----------:|--------:|------------:|--------:|
@@ -652,33 +663,39 @@ Coefficient table for the censoring weight denominator:
 
 The numerator predicted probability was
 
-$$
+``` math
 \hat{q}_{it}^{C}
 =
 \widehat{\Pr}
 \left(
 R_{i,t+1} = 1 \mid H_{it}^{C*}
 \right).
-$$
+```
 
 #### Stabilized censoring weights
 
-The visit-specific stabilized censoring weight was then calculated as $$
+The visit-specific stabilized censoring weight was then calculated as
+
+``` math
 \mathrm{SW}_{it}^{C}
 =
 \frac{\hat{q}_{it}^{C}}{\hat{p}_{it}^{C}}.
-$$ The cumulative stabilized censoring weight through visit $t$ was
+```
+
+The cumulative stabilized censoring weight through visit $t$ was
 obtained by multiplying the visit-specific censoring weights from the
 first post-baseline interval up to the current visit:
 
-$$
+``` math
 \mathrm{cSW}_{it}^{C}
 =
 \prod_{s=1}^{t} \mathrm{SW}_{is}^{C}.
-$$ The effective sample size after weighting was calculated using the
-Kish formula:
+```
 
-$$
+The effective sample size after weighting was calculated using the Kish
+formula:
+
+``` math
 \mathrm{ESS}
 =
 \frac{
@@ -691,7 +708,7 @@ $$
 \mathrm{SW}_{it}^{\mathrm{total}}
 \right)^2
 }.
-$$
+```
 
 | Measure | Visit-specific censoring weight | Cumulative censoring weight |
 |:---|:---|:---|
@@ -720,17 +737,21 @@ cumulative stabilized censoring weight for each patient-visit row. This
 accounts jointly for non-random dose titration and informative censoring
 up to visit $t$:
 
-$$
+``` math
 \mathrm{SW}_{it}^{\mathrm{total}}
 =
 \mathrm{cSW}_{it}^{D}
 \times
 \mathrm{cSW}_{it}^{C}.
-$$ Weight stability was assessed by examining the distribution of the
-dose, censoring, and total weights, including their mean, standard
-deviation, selected percentiles, maximum value, and the effective sample
-size after truncation. The effective sample size after weighting was
-calculated using the Kish formula: $$
+```
+
+Weight stability was assessed by examining the distribution of the dose,
+censoring, and total weights, including their mean, standard deviation,
+selected percentiles, maximum value, and the effective sample size after
+truncation. The effective sample size after weighting was calculated
+using the Kish formula:
+
+``` math
 \mathrm{ESS}
 =
 \frac{
@@ -743,7 +764,9 @@ calculated using the Kish formula: $$
 \mathrm{SW}_{it}^{\mathrm{total}}
 \right)^2
 }.
-$$ The total-weight summary describes the final stabilized weights,
+```
+
+The total-weight summary describes the final stabilized weights,
 $\mathrm{SW}_{it}^{\mathrm{total}}$, obtained by multiplying the
 cumulative dose and censoring weights.
 
@@ -812,7 +835,8 @@ earlier visits before $t-3$, when available.
 
 The weighted marginal structural model was specified as
 
-$$
+```` markdown
+```math
 \Delta Y_{it}
 =
 \eta_{0}
@@ -823,7 +847,8 @@ $$
 + \eta_{5} d_{i,t-3}
 + \eta_{6} \bar{d}_{i,<t-3}
 + \varepsilon_{it}.
-$$
+```
+````
 
 The term $f(\mathrm{week}_{it})$ denotes a restricted cubic spline
 function of actual study week, with three knots at the 10th, 50th, and
