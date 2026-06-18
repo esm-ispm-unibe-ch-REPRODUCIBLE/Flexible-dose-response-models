@@ -390,19 +390,20 @@ Y_{i0}
 ```
 
 is the observed history available for patient $i$ before the dose
-assignment at visit $t$. The term $f(\mathrm{week}_{it})$ denotes a
-restricted cubic spline function of actual study week, specified with
-three knots at the 10th, 50th, and 90th percentiles of the observed
-visit distribution. In the ordinal dose-assignment model, the current
-dose $D_{it}$ was treated as an ordered categorical variable, and
-previous dose-history was represented categorically through
-$d_{i,t-1}$). We included interactions between previous dose, HAMD
-improvement, and side-effects in the denominator dose model. This
-allowed the dose-assignment model to reflect that the same clinical
-information may lead to different dose decisions depending on the dose
-the patient was already taking. For example, poor improvement may lead
-to dose escalation for a patient on a low dose, whereas side effects may
-lead to dose reduction for a patient already on a high dose.
+assignment at visit $t$. The term $f(\mathrm{week}_{it})$
+$`f(\mathrm{week}_{it})`$ $f(\mathrm{week}_{it}$ denotes a restricted
+cubic spline function of actual study week, specified with three knots
+at the 10th, 50th, and 90th percentiles of the observed visit
+distribution. In the ordinal dose-assignment model, the current dose
+$D_{it}$) was treated as an ordered categorical variable, and previous
+dose-history was represented categorically through $d_{it-1}$). We
+included interactions between previous dose, HAMD improvement, and
+side-effects in the denominator dose model. This allowed the
+dose-assignment model to reflect that the same clinical information may
+lead to different dose decisions depending on the dose the patient was
+already taking. For example, poor improvement may lead to dose
+escalation for a patient on a low dose, whereas side effects may lead to
+dose reduction for a patient already on a high dose.
 
 |                                 |  Value | Std. Error | t value | p_value |
 |:--------------------------------|-------:|-----------:|--------:|--------:|
