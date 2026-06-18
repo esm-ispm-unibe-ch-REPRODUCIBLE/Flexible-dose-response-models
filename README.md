@@ -881,21 +881,20 @@ The weighted MSM was specified as
 
 The term $f(\mathrm{week}_{it})$ denotes a restricted cubic spline
 function of actual study week, with three knots at the 10th, 50th, and
-90th percentiles of the observed visit distribution. $Y_{i0}$ is the
+90th percentiles of the observed visit distribution. $(Y_{i0}$ is the
 baseline HAMD score. Following the dose-history structure used by
 Lipkovich et al., the outcome model included recent dose history. The
-most recent dose $d_{i,t-1}$, the dose one visit earlier $d_{i,t-2}$,
-and the dose two visits earlier $d_{i,t-3}$ were represented
-categorically. The average earlier dose, $\bar{d}_{i,<t-3}$, was kept
-continuous because it can take values that are not actual dose levels,
-for example 25 or 33.3 mg. A separate 0 category was retained where a
-lagged dose was not yet available. For example, at the first
-post-baseline visit, $d_{i,t-2}$, $d_{i,t-3}$, and $\bar{d}_{i,<t-3}$
-were set to 0 mg. We used interactions between study week and the most
-recent dose category, allowing the effect of the most recent dose to
-vary over follow-up, and between baseline HAMD and week to allow
-patients with different baseline severity to have different improvement
-trajectories over time.
+most recent dose $d_{it-1}$, the dose one visit earlier $d_{it-2}$, and
+the dose two visits earlier $d_{it-3}$ were represented categorically.
+The average earlier dose, $\bar d_{i,<t-3}$, was kept continuous because
+it can take values that are not actual dose levels, for example 25 or
+33.3 mg. A separate 0 category was retained where a lagged dose was not
+yet available. For example, at the first post-baseline visit,
+$d_{it-2}$, $d_{it-3}$, and $\bar d_{i,<t-3}$ were set to 0 mg. We used
+interactions between study week and the most recent dose category,
+allowing the effect of the most recent dose to vary over follow-up, and
+between baseline HAMD and week to allow patients with different baseline
+severity to have different improvement trajectories over time.
 
 This model estimates the mean HAMD improvement trajectory under
 alternative dose histories in the weighted pseudo-population, where dose
