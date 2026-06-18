@@ -1132,7 +1132,7 @@ model was specified for each non-reference dose $d \in \{30,40,50\}$ as
 + \alpha_{1d} f(\mathrm{week}_{it})
 + \alpha_{2d} \Delta Y_{it}
 + \alpha_{3d} S_{it}
-+ \alpha_{4d} d_{i,t-1} \\
++ \alpha_{4d} d_{it-1} \\
 &\quad
 + \alpha_{5d} Y_{i0}.
 \end{aligned}
@@ -1170,7 +1170,7 @@ excluded the time-varying confounders:
 &=
 \beta_{0d}
 + \beta_{1d} f(\mathrm{week}_{it})
-+ \beta_{2d} d_{i,t-1}
++ \beta_{2d} d_{it-1}
 + \beta_{3d} Y_{i0}.
 \end{aligned}
 ```
