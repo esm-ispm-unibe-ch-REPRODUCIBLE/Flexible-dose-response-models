@@ -27,9 +27,13 @@ Flexible dose-response models
 The clinical outcome of the included study is the Hamilton Depression
 Rating Scale (HAMD) score, denoted by $Y_{it}$, measured for patient $i$
 at visit $t$. The baseline HAMD score was denoted by $Y_{i0}$. Treatment
-response was expressed as improvement from baseline: $$
+response was expressed as improvement from baseline:
+
+``` math
 \Delta Y_{it} = Y_{i0} - Y_{it}
-$$ Thus, positive values of $ΔY_{it}$ indicate improvement. Safety was
+```
+
+Thus, positive values of $ΔY_{it}$ indicate improvement. Safety was
 summarized at each visit using a side-effect score $S_{it}$, measured on
 a 0–10 scale, where higher values indicate a greater number of side
 effects reported by the patient.
@@ -69,7 +73,8 @@ weak negative association with dose.
 |     7 |  33 |  13 |  10 |   6 |
 |     8 |   3 |   4 |   1 |   3 |
 
-Number of patient-visits by dose and visit in weeks
+<small><em>Number of patient-visits by dose and visit in
+weeks</em></small>
 
 | Visit | Previous dose |  20 |  30 |  40 |  50 |
 |------:|:--------------|----:|----:|----:|----:|
@@ -103,7 +108,8 @@ Number of patient-visits by dose and visit in weeks
 |     8 | 40            |   0 |   1 |   1 |   0 |
 |     8 | 50            |   1 |   1 |   0 |   2 |
 
-Dose titration by visit in weeks: previous dose versus current dose
+<small><em>Dose titration by visit in weeks: previous dose versus
+current dose</em></small>
 
 In these data, the ordered visit index was not used as the time scale
 because actual visit days varied considerably across patients.
@@ -120,7 +126,8 @@ because actual visit days varied considerably across patients.
 | 8 | 16 | 43 | 45.0 | 46.2 | 54 |
 | 9 | 1 | 50 | 50.0 | 50.0 | 50 |
 
-Distribution of actual visit days by patient visit order
+<small><em>Distribution of actual visit days by patient visit
+order</em></small>
 
 ## Notation
 
@@ -417,7 +424,8 @@ lead to dose reduction for a patient already on a high dose.
 | 30\|40                          | -0.146 |      0.678 |  -0.215 |   0.830 |
 | 40\|50                          |  1.179 |      0.682 |   1.729 |   0.084 |
 
-Coefficient table for the dose weight denominator:
+<small><em>Coefficient table for the dose weight
+denominator</em></small>
 
 A **positive coefficient** means that higher values of that variable are
 associated with a higher probability of receiving a higher dose, whereas
@@ -488,7 +496,7 @@ denotes the reduced observed history.
 | 30\|40                          |  1.089 |      0.553 |   1.970 |   0.049 |
 | 40\|50                          |  2.158 |      0.559 |   3.858 |   0.000 |
 
-Coefficient table for the dose weight numerator:
+<small><em>Coefficient table for the dose weight numerator:</em></small>
 
 The fitted probability corresponding to the observed dose $d_{it}$ was
 extracted as
@@ -536,7 +544,8 @@ visit up to the current visit:
 | Maximum                  | 13.635                     | 12.521                 |
 | Effective sample size    |                            | 232.643                |
 
-Summary of visit-specific and cumulative stabilized dose weights
+<small><em>Summary of visit-specific and cumulative stabilized dose
+weights</em></small>
 
 Note: The ordinal dose model assumes proportional odds, meaning that the
 covariates have a common effect across the cumulative dose-category
@@ -608,7 +617,8 @@ Y_{i0},
 | age                |    0.022 |      0.015 |   1.497 |       0.135 |   0.135 |
 | sexM               |   -0.380 |      0.309 |  -1.227 |       0.220 |   0.220 |
 
-Coefficient table for the censoring weight denominator:
+<small><em>Coefficient table for the censoring weight
+denominator</em></small>
 
 The denominator predicted probability is
 
@@ -668,7 +678,8 @@ Y_{i0},
 | age              |    0.022 |      0.015 |   1.503 |       0.133 |   0.133 |
 | sexM             |   -0.364 |      0.306 |  -1.191 |       0.234 |   0.234 |
 
-Coefficient table for the censoring weight denominator:
+<small><em>Coefficient table for the censoring weight
+denominator</em></small>
 
 The numerator predicted probability was
 
@@ -736,7 +747,8 @@ formula:
 | Maximum | 1.608 | 1.669 |
 | Effective sample size |  | 508.946 |
 
-Summary of visit-specific and cumulative stabilized censoring weights
+<small><em>Summary of visit-specific and cumulative stabilized censoring
+weights</em></small>
 
 ### Total stabilized weights and truncation
 
@@ -796,7 +808,7 @@ cumulative dose and censoring weights.
 | Maximum                  | 12.535                  |
 | Effective sample size    | 226.339                 |
 
-Summary of total stabilized weights
+<small><em>Summary of total stabilized weights</em></small>
 
 To reduce the influence of extreme weights and improve precision, total
 stabilized weights were truncated at the 1st and 99th percentiles. The
@@ -819,7 +831,7 @@ distribution of the truncated weights is summarized below.
 | Maximum                  | 514.000                           |
 | Effective sample size    | 163.000                           |
 
-Summary of truncated total stabilized weights
+<small><em>Summary of truncated total stabilized weights</em></small>
 
 ## Step 2 - Weighted repeated-measures marginal structural model MSM
 
@@ -917,7 +929,8 @@ history included in the weight models.
 | rms::rcs(visit, 3)visit:dose_lag1_f50  |    4.540 |   3.533 | 1.651 |       0.199 |
 | rms::rcs(visit, 3)visit’:dose_lag1_f50 |   -4.838 |   5.154 | 0.881 |       0.348 |
 
-Weighted marginal structural model for HAMD improvement
+<small><em>Weighted marginal structural model for HAMD
+improvement</em></small>
 
 Interpretation: If a dose coefficient is positive: then higher previous
 dose is associated with greater HAMD improvement. If a dose coefficient
@@ -936,7 +949,7 @@ MSM coefficients; they do not incorporate additional uncertainty from
 estimating the treatment and censoring weights unless a full bootstrap
 is used.
 
-![](README_files/figure-gfm/week8-pairwise-dose-plot-1.png)<!-- -->![](README_files/figure-gfm/week8-pairwise-dose-plot-2.png)<!-- -->
+![](README_files/figure-gfm/week8-pairwise-dose-plot-1.png)<!-- -->
 
 | contrast | target_visit | estimate | se | lower_95 | upper_95 | p_value |
 |:---|---:|---:|---:|---:|---:|---:|
@@ -947,7 +960,8 @@ is used.
 | Always 50 mg vs always 30 mg | 8 | -5.051 | 5.593 | -16.013 | 5.910 | 0.366 |
 | Always 50 mg vs always 40 mg | 8 | -4.698 | 8.769 | -21.885 | 12.490 | 0.592 |
 
-Pairwise estimated dose-strategy contrasts at week 8
+<small><em>Pairwise estimated dose-strategy contrasts at week
+8</em></small>
 
 ## References
 
