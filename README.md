@@ -14,7 +14,7 @@ Flexible dose-response models
     truncation](#total-stabilized-weights-and-truncation)
 - [Step 2 - Weighted repeated-measures marginal structural model
   MSM](#step-2---weighted-repeated-measures-marginal-structural-model-msm)
-- [Predictions](#predictions)
+- [Step 3 - Predictions](#step-3---predictions)
 - [References](#references)
 - [Appendix](#appendix)
   - [Predicted probabilities under the ordinal dose
@@ -386,21 +386,36 @@ is the observed history available for patient $i$ before the dose
 assignment at visit $t$. The term $f(\mathrm{week}_{it})$ denotes a
 restricted cubic spline function of actual study week, specified with
 three knots at the 10th, 50th, and 90th percentiles of the observed
-visit distribution.
+visit distribution. In the ordinal dose-assignment model, the current
+dose $D_{it}$ was treated as an ordered categorical variable, and
+previous dose-history was represented categorically through
+$d_{i,t-1}$). We included interactions between previous dose, HAMD
+improvement, and side-effects in the denominator dose model. This
+allowed the dose-assignment model to reflect that the same clinical
+information may lead to different dose decisions depending on the dose
+the patient was already taking. For example, poor improvement may lead
+to dose escalation for a patient on a low dose, whereas side effects may
+lead to dose reduction for a patient already on a high dose.
 
-|                            |  Value | Std. Error | t value | p_value |
-|:---------------------------|-------:|-----------:|--------:|--------:|
-| rcs(visit, visit_df)visit  |  0.299 |      0.153 |   1.952 |   0.051 |
-| rcs(visit, visit_df)visit’ | -0.544 |      0.235 |  -2.311 |   0.021 |
-| delta_outcome              | -0.032 |      0.029 |  -1.098 |   0.272 |
-| side.effects               | -0.340 |      0.081 |  -4.216 |   0.000 |
-| dose_lag1                  |  0.022 |      0.015 |   1.486 |   0.137 |
-| outcome_0                  |  0.006 |      0.021 |   0.283 |   0.777 |
-| delta_outcome:dose_lag1    |  0.001 |      0.001 |   0.655 |   0.513 |
-| side.effects:dose_lag1     | -0.001 |      0.002 |  -0.202 |   0.840 |
-| 20\|30                     | -0.721 |      0.721 |  -1.001 |   0.317 |
-| 30\|40                     |  0.515 |      0.722 |   0.713 |   0.476 |
-| 40\|50                     |  1.812 |      0.729 |   2.488 |   0.013 |
+|                                 |  Value | Std. Error | t value | p_value |
+|:--------------------------------|-------:|-----------:|--------:|--------:|
+| rms::rcs(visit, visit_df)visit  |  0.329 |      0.159 |   2.070 |   0.038 |
+| rms::rcs(visit, visit_df)visit’ | -0.588 |      0.242 |  -2.432 |   0.015 |
+| delta_outcome                   | -0.030 |      0.016 |  -1.925 |   0.054 |
+| side.effects                    | -0.385 |      0.044 |  -8.781 |   0.000 |
+| dose_lag1_f30                   | -0.590 |      0.446 |  -1.322 |   0.186 |
+| dose_lag1_f40                   | -0.162 |      0.421 |  -0.385 |   0.700 |
+| dose_lag1_f50                   |  1.046 |      0.495 |   2.112 |   0.035 |
+| outcome_0                       |  0.003 |      0.021 |   0.139 |   0.890 |
+| delta_outcome:dose_lag1_f30     |  0.041 |      0.024 |   1.714 |   0.087 |
+| delta_outcome:dose_lag1_f40     |  0.041 |      0.024 |   1.694 |   0.090 |
+| delta_outcome:dose_lag1_f50     | -0.010 |      0.031 |  -0.317 |   0.752 |
+| side.effects:dose_lag1_f30      |  0.111 |      0.077 |   1.435 |   0.151 |
+| side.effects:dose_lag1_f40      |  0.121 |      0.077 |   1.566 |   0.117 |
+| side.effects:dose_lag1_f50      | -0.095 |      0.088 |  -1.079 |   0.281 |
+| 20\|30                          | -1.396 |      0.680 |  -2.053 |   0.040 |
+| 30\|40                          | -0.146 |      0.678 |  -0.215 |   0.830 |
+| 40\|50                          |  1.179 |      0.682 |   1.729 |   0.084 |
 
 Coefficient table for the dose weight denominator:
 
@@ -461,15 +476,17 @@ denotes the reduced observed history.
 \end{aligned}
 ```
 
-|                            |  Value | Std. Error | t value | p_value |
-|:---------------------------|-------:|-----------:|--------:|--------:|
-| rcs(visit, visit_df)visit  |  0.150 |      0.136 |   1.108 |   0.268 |
-| rcs(visit, visit_df)visit’ | -0.379 |      0.216 |  -1.754 |   0.079 |
-| dose_lag1                  |  0.037 |      0.008 |   4.542 |   0.000 |
-| outcome_0                  |  0.004 |      0.018 |   0.231 |   0.817 |
-| 20\|30                     |  0.921 |      0.561 |   1.641 |   0.101 |
-| 30\|40                     |  1.876 |      0.568 |   3.305 |   0.001 |
-| 40\|50                     |  2.947 |      0.577 |   5.110 |   0.000 |
+|                                 |  Value | Std. Error | t value | p_value |
+|:--------------------------------|-------:|-----------:|--------:|--------:|
+| rms::rcs(visit, visit_df)visit  |  0.122 |      0.138 |   0.884 |   0.376 |
+| rms::rcs(visit, visit_df)visit’ | -0.341 |      0.219 |  -1.560 |   0.119 |
+| dose_lag1_f30                   |  0.452 |      0.227 |   1.991 |   0.046 |
+| dose_lag1_f40                   |  0.978 |      0.236 |   4.147 |   0.000 |
+| dose_lag1_f50                   |  0.974 |      0.266 |   3.667 |   0.000 |
+| outcome_0                       |  0.003 |      0.018 |   0.173 |   0.863 |
+| 20\|30                          |  0.126 |      0.550 |   0.230 |   0.818 |
+| 30\|40                          |  1.089 |      0.553 |   1.970 |   0.049 |
+| 40\|50                          |  2.158 |      0.559 |   3.858 |   0.000 |
 
 Coefficient table for the dose weight numerator:
 
@@ -506,18 +523,18 @@ visit up to the current visit:
 |:-------------------------|:---------------------------|:-----------------------|
 | Number of patient-visits | 525                        | 525                    |
 | Number of patients       | 163                        | 163                    |
-| Mean                     | 1.017                      | 1.007                  |
-| SD                       | 0.873                      | 1.006                  |
-| Minimum                  | 0.279                      | 0.056                  |
-| 1st percentile           | 0.338                      | 0.111                  |
-| 5th percentile           | 0.433                      | 0.196                  |
-| 25th percentile          | 0.614                      | 0.456                  |
-| Median                   | 0.805                      | 0.736                  |
-| 75th percentile          | 1.012                      | 1.194                  |
-| 95th percentile          | 2.392                      | 2.676                  |
-| 99th percentile          | 4.144                      | 5.119                  |
-| Maximum                  | 10.481                     | 10.481                 |
-| Effective sample size    |                            | 263.064                |
+| Mean                     | 1.062                      | 1.050                  |
+| SD                       | 1.197                      | 1.179                  |
+| Minimum                  | 0.269                      | 0.043                  |
+| 1st percentile           | 0.294                      | 0.099                  |
+| 5th percentile           | 0.406                      | 0.165                  |
+| 25th percentile          | 0.594                      | 0.448                  |
+| Median                   | 0.795                      | 0.707                  |
+| 75th percentile          | 1.015                      | 1.215                  |
+| 95th percentile          | 2.680                      | 3.081                  |
+| 99th percentile          | 5.208                      | 5.659                  |
+| Maximum                  | 13.635                     | 12.521                 |
+| Effective sample size    |                            | 232.643                |
 
 Summary of visit-specific and cumulative stabilized dose weights
 
@@ -578,16 +595,18 @@ Y_{i0},
 
 |                    | Estimate | Std. Error | z value | Pr(\>\|z\|) | p_value |
 |:-------------------|---------:|-----------:|--------:|------------:|--------:|
-| (Intercept)        |    5.774 |      1.550 |   3.725 |       0.000 |   0.000 |
-| visit              |   -1.164 |      0.119 |  -9.801 |       0.000 |   0.000 |
-| dose               |    0.032 |      0.017 |   1.872 |       0.061 |   0.061 |
-| delta_outcome      |    0.006 |      0.019 |   0.299 |       0.765 |   0.765 |
-| delta_outcome_lag1 |    0.023 |      0.019 |   1.199 |       0.231 |   0.231 |
-| side.effects       |   -0.040 |      0.056 |  -0.718 |       0.473 |   0.473 |
-| side.effects_lag1  |    0.058 |      0.050 |   1.167 |       0.243 |   0.243 |
-| outcome_0          |   -0.036 |      0.043 |  -0.829 |       0.407 |   0.407 |
-| age                |    0.022 |      0.015 |   1.481 |       0.139 |   0.139 |
-| sexM               |   -0.362 |      0.306 |  -1.185 |       0.236 |   0.236 |
+| (Intercept)        |    6.477 |      1.459 |   4.440 |       0.000 |   0.000 |
+| visit              |   -1.167 |      0.119 |  -9.793 |       0.000 |   0.000 |
+| dose_current_f30   |   -0.037 |      0.400 |  -0.092 |       0.926 |   0.926 |
+| dose_current_f40   |    0.888 |      0.491 |   1.808 |       0.071 |   0.071 |
+| dose_current_f50   |    0.829 |      0.544 |   1.525 |       0.127 |   0.127 |
+| delta_outcome      |    0.004 |      0.019 |   0.185 |       0.853 |   0.853 |
+| delta_outcome_lag1 |    0.023 |      0.019 |   1.197 |       0.231 |   0.231 |
+| side.effects       |   -0.038 |      0.056 |  -0.681 |       0.496 |   0.496 |
+| side.effects_lag1  |    0.065 |      0.050 |   1.293 |       0.196 |   0.196 |
+| outcome_0          |   -0.036 |      0.044 |  -0.823 |       0.411 |   0.411 |
+| age                |    0.022 |      0.015 |   1.497 |       0.135 |   0.135 |
+| sexM               |   -0.380 |      0.309 |  -1.227 |       0.220 |   0.220 |
 
 Coefficient table for the censoring weight denominator:
 
@@ -638,14 +657,16 @@ Y_{i0},
 \right\}.
 ```
 
-|             | Estimate | Std. Error | z value | Pr(\>\|z\|) | p_value |
-|:------------|---------:|-----------:|--------:|------------:|--------:|
-| (Intercept) |    4.822 |      1.242 |   3.882 |       0.000 |   0.000 |
-| visit       |   -1.089 |      0.106 | -10.326 |       0.000 |   0.000 |
-| dose        |    0.036 |      0.014 |   2.619 |       0.009 |   0.009 |
-| outcome_0   |   -0.008 |      0.033 |  -0.254 |       0.799 |   0.799 |
-| age         |    0.022 |      0.015 |   1.493 |       0.136 |   0.136 |
-| sexM        |   -0.357 |      0.303 |  -1.176 |       0.239 |   0.239 |
+|                  | Estimate | Std. Error | z value | Pr(\>\|z\|) | p_value |
+|:-----------------|---------:|-----------:|--------:|------------:|--------:|
+| (Intercept)      |    5.652 |      1.208 |   4.677 |       0.000 |   0.000 |
+| visit            |   -1.092 |      0.106 | -10.324 |       0.000 |   0.000 |
+| dose_current_f30 |    0.023 |      0.378 |   0.060 |       0.952 |   0.952 |
+| dose_current_f40 |    0.937 |      0.425 |   2.207 |       0.027 |   0.027 |
+| dose_current_f50 |    0.926 |      0.452 |   2.049 |       0.041 |   0.041 |
+| outcome_0        |   -0.010 |      0.033 |  -0.304 |       0.761 |   0.761 |
+| age              |    0.022 |      0.015 |   1.503 |       0.133 |   0.133 |
+| sexM             |   -0.364 |      0.306 |  -1.191 |       0.234 |   0.234 |
 
 Coefficient table for the censoring weight denominator:
 
@@ -702,18 +723,18 @@ formula:
 |:---|:---|:---|
 | Number of patient-visits | 514 | 514 |
 | Number of patients | 163 | 163 |
-| Mean | 1.007 | 1.008 |
-| SD | 0.093 | 0.096 |
-| Minimum | 0.588 | 0.545 |
-| 1st percentile | 0.743 | 0.753 |
-| 5th percentile | 0.891 | 0.891 |
-| 25th percentile | 0.991 | 0.990 |
+| Mean | 1.009 | 1.009 |
+| SD | 0.097 | 0.101 |
+| Minimum | 0.571 | 0.530 |
+| 1st percentile | 0.739 | 0.765 |
+| 5th percentile | 0.902 | 0.897 |
+| 25th percentile | 0.990 | 0.991 |
 | Median | 1.000 | 1.000 |
-| 75th percentile | 1.007 | 1.008 |
-| 95th percentile | 1.156 | 1.147 |
-| 99th percentile | 1.379 | 1.401 |
-| Maximum | 1.636 | 1.717 |
-| Effective sample size |  | 509.405 |
+| 75th percentile | 1.008 | 1.009 |
+| 95th percentile | 1.159 | 1.161 |
+| 99th percentile | 1.432 | 1.442 |
+| Maximum | 1.608 | 1.669 |
+| Effective sample size |  | 508.946 |
 
 Summary of visit-specific and cumulative stabilized censoring weights
 
@@ -762,18 +783,18 @@ cumulative dose and censoring weights.
 |:-------------------------|:------------------------|
 | Number of patient-visits | 514                     |
 | Number of patients       | 163                     |
-| Mean                     | 1.017                   |
-| SD                       | 1.032                   |
-| Minimum                  | 0.062                   |
-| 1st percentile           | 0.121                   |
-| 5th percentile           | 0.204                   |
-| 25th percentile          | 0.459                   |
-| Median                   | 0.737                   |
-| 75th percentile          | 1.184                   |
-| 95th percentile          | 2.675                   |
-| 99th percentile          | 5.696                   |
-| Maximum                  | 10.492                  |
-| Effective sample size    | 253.402                 |
+| Mean                     | 1.058                   |
+| SD                       | 1.193                   |
+| Minimum                  | 0.047                   |
+| 1st percentile           | 0.104                   |
+| 5th percentile           | 0.187                   |
+| 25th percentile          | 0.439                   |
+| Median                   | 0.710                   |
+| 75th percentile          | 1.213                   |
+| 95th percentile          | 3.116                   |
+| 99th percentile          | 5.671                   |
+| Maximum                  | 12.535                  |
+| Effective sample size    | 226.339                 |
 
 Summary of total stabilized weights
 
@@ -806,22 +827,26 @@ After estimating the total weights for each patient-visit row, we fitted
 a weighted repeated-measures marginal structural model to estimate the
 effect of dose history on HAMD improvement over time. The model was
 estimated using generalized estimating equations with an identity link
-and Gaussian working variance. Patient identifier was used as the
-clustering variable to account for repeated outcome measurements within
-individuals. The final stabilized weights,
+and Gaussian working variance. We used an independence working
+correlation structure and robust sandwich standard errors clustered by
+patient. The independence structure was used as a working correlation
+assumption only. Inference was based on the robust variance estimator,
+which accounts for within-patient correlation in repeated HAMD
+measurements and provides valid standard errors even if the working
+correlation structure is misspecified. The final stabilized weights,
 $\mathrm{SW}_{it}^{\mathrm{total}}$, were used as observation-level
-weights. Robust sandwich standard errors were used for statistical
-inference.
+weights.
 
-Following the dose-history structure used by Lipkovich et al., the model
-included recent dose history rather than only the most recent dose.
-Specifically, for patient $i$ at visit $t$, $d_{i,t-1}$ denotes the most
-recent dose before the HAMD measurement at visit $t$, $d_{i,t-2}$
-denotes the dose one visit earlier, $d_{i,t-3}$ denotes the dose two
-visits earlier, and $\bar{d}_{i,<t-3}$ denotes the average dose over
-earlier visits before $t-3$, when available.
+Following the dose-history structure used by Lipkovich et al., the
+outcome model included recent dose history. The most recent dose
+$d_{i,t-1}$, the dose one visit earlier $d_{i,t-2}$, and the dose two
+visits earlier $d_{i,t-3}$ were represented categorically. A separate 0
+category was retained where a lagged dose was not yet available. The
+average earlier dose, $\bar{d}_{i,<t-3}$, was kept continuous because it
+can take values that are not actual dose levels, for example 25 or 33.3
+mg.
 
-The weighted marginal structural model was specified as
+The weighted MSM was specified as
 
 ``` math
 \begin{aligned}
@@ -835,6 +860,9 @@ The weighted marginal structural model was specified as
 &\quad
 + \eta_{5} d_{i,t-3}
 + \eta_{6} \overline{d}_{i,\lt t-3}
++ \eta_{7} Y_{i0} f(\mathrm{week}_{it}) \\ 
+&\quad 
++ \eta_{8}\!\left(d_{i,t-1}, f(\mathrm{week}_{it})\right)
 + \varepsilon_{it}.
 \end{aligned}
 ```
@@ -842,28 +870,52 @@ The weighted marginal structural model was specified as
 The term $f(\mathrm{week}_{it})$ denotes a restricted cubic spline
 function of actual study week, with three knots at the 10th, 50th, and
 90th percentiles of the observed visit distribution. $Y_{i0}$ is the
-baseline HAMD score. Dose was modeled as a numerical variable; for
-visits at which one or more lagged dose terms were undefined because
-insufficient prior visits were available, the corresponding missing
-dose-history terms were set to 0 mg. For example, at the first
+baseline HAMD score. Following the dose-history structure used by
+Lipkovich et al., the outcome model included recent dose history. The
+most recent dose $d_{i,t-1}$, the dose one visit earlier $d_{i,t-2}$,
+and the dose two visits earlier $d_{i,t-3}$ were represented
+categorically. The average earlier dose, $\bar{d}_{i,<t-3}$, was kept
+continuous because it can take values that are not actual dose levels,
+for example 25 or 33.3 mg. A separate 0 category was retained where a
+lagged dose was not yet available. For example, at the first
 post-baseline visit, $d_{i,t-2}$, $d_{i,t-3}$, and $\bar{d}_{i,<t-3}$
-were set to 0 mg.
+were set to 0 mg. We used interactions between study week and the most
+recent dose category, allowing the effect of the most recent dose to
+vary over follow-up, and between baseline HAMD and week to allow
+patients with different baseline severity to have different improvement
+trajectories over time.
 
 This model estimates the mean HAMD improvement trajectory under
 alternative dose histories in the weighted pseudo-population, where dose
 titration and censoring are no longer driven by the measured clinical
 history included in the weight models.
 
-| Term                            | Estimate | Std.err |    Wald | Pr(\>\|W\|) |
-|:--------------------------------|---------:|--------:|--------:|------------:|
-| (Intercept)                     |  -28.422 |   3.664 |  60.172 |       0.000 |
-| rms::rcs(visit, visit_df)visit  |    3.785 |   0.713 |  28.146 |       0.000 |
-| rms::rcs(visit, visit_df)visit’ |   -3.427 |   1.219 |   7.902 |       0.005 |
-| outcome_0                       |    1.084 |   0.100 | 116.778 |       0.000 |
-| dose_lag1                       |   -0.059 |   0.060 |   0.946 |       0.331 |
-| dose_lag2                       |   -0.070 |   0.068 |   1.047 |       0.306 |
-| dose_lag3                       |    0.030 |   0.057 |   0.276 |       0.599 |
-| avg_dose_before_lag3            |    0.030 |   0.079 |   0.148 |       0.700 |
+| Term                                   | Estimate | Std.err |  Wald | Pr(\>\|W\|) |
+|:---------------------------------------|---------:|--------:|------:|------------:|
+| (Intercept)                            |  -15.481 |   6.233 | 6.168 |       0.013 |
+| rms::rcs(visit, 3)visit                |   -2.430 |   3.212 | 0.572 |       0.449 |
+| rms::rcs(visit, 3)visit’               |    5.910 |   5.975 | 0.978 |       0.323 |
+| outcome_0                              |    0.545 |   0.218 | 6.248 |       0.012 |
+| dose_lag1_f30                          |    1.991 |   7.192 | 0.077 |       0.782 |
+| dose_lag1_f40                          |   -0.796 |   9.135 | 0.008 |       0.931 |
+| dose_lag1_f50                          |  -15.087 |   9.380 | 2.587 |       0.108 |
+| dose_lag2_f20                          |    0.341 |   2.009 | 0.029 |       0.865 |
+| dose_lag2_f30                          |    0.817 |   2.820 | 0.084 |       0.772 |
+| dose_lag2_f40                          |   -2.247 |   2.684 | 0.700 |       0.403 |
+| dose_lag2_f50                          |   -1.148 |   3.790 | 0.092 |       0.762 |
+| dose_lag3_f20                          |   -0.568 |   1.926 | 0.087 |       0.768 |
+| dose_lag3_f30                          |    0.591 |   2.601 | 0.052 |       0.820 |
+| dose_lag3_f40                          |    4.122 |   2.806 | 2.158 |       0.142 |
+| dose_lag3_f50                          |    0.675 |   3.019 | 0.050 |       0.823 |
+| avg_dose_before_lag3                   |   -0.021 |   0.084 | 0.063 |       0.803 |
+| rms::rcs(visit, 3)visit:outcome_0      |    0.237 |   0.105 | 5.095 |       0.024 |
+| rms::rcs(visit, 3)visit’:outcome_0     |   -0.377 |   0.196 | 3.717 |       0.054 |
+| rms::rcs(visit, 3)visit:dose_lag1_f30  |   -1.393 |   2.805 | 0.247 |       0.620 |
+| rms::rcs(visit, 3)visit’:dose_lag1_f30 |    2.809 |   4.141 | 0.460 |       0.498 |
+| rms::rcs(visit, 3)visit:dose_lag1_f40  |   -0.975 |   3.746 | 0.068 |       0.795 |
+| rms::rcs(visit, 3)visit’:dose_lag1_f40 |    2.539 |   6.238 | 0.166 |       0.684 |
+| rms::rcs(visit, 3)visit:dose_lag1_f50  |    4.540 |   3.533 | 1.651 |       0.199 |
+| rms::rcs(visit, 3)visit’:dose_lag1_f50 |   -4.838 |   5.154 | 0.881 |       0.348 |
 
 Weighted marginal structural model for HAMD improvement
 
@@ -872,18 +924,28 @@ dose is associated with greater HAMD improvement. If a dose coefficient
 is negative: then higher previous dose is associated with lower HAMD
 improvement.
 
-## Predictions
+## Step 3 - Predictions
 
-![](README_files/figure-gfm/week8-pairwise-dose-plot-1.png)<!-- -->
+After fitting the weighted MSM, we predicted HAMD improvement
+trajectories under sustained dose strategies, setting the dose-history
+variables to the values corresponding to each strategy. Predictions were
+obtained at the mean baseline HAMD score. Pointwise 95% confidence
+intervals were calculated using the robust sandwich covariance matrix
+from the fitted GEE. These intervals reflect uncertainty in the fitted
+MSM coefficients; they do not incorporate additional uncertainty from
+estimating the treatment and censoring weights unless a full bootstrap
+is used.
+
+![](README_files/figure-gfm/week8-pairwise-dose-plot-1.png)<!-- -->![](README_files/figure-gfm/week8-pairwise-dose-plot-2.png)<!-- -->
 
 | contrast | target_visit | estimate | se | lower_95 | upper_95 | p_value |
 |:---|---:|---:|---:|---:|---:|---:|
-| Always 30 mg vs always 20 mg | 8 | -0.733 | 0.653 | -2.012 | 0.546 | 0.262 |
-| Always 40 mg vs always 20 mg | 8 | -1.465 | 1.305 | -4.023 | 1.093 | 0.262 |
-| Always 50 mg vs always 20 mg | 8 | -2.198 | 1.958 | -6.035 | 1.639 | 0.262 |
-| Always 40 mg vs always 30 mg | 8 | -0.733 | 0.653 | -2.012 | 0.546 | 0.262 |
-| Always 50 mg vs always 30 mg | 8 | -1.465 | 1.305 | -4.023 | 1.093 | 0.262 |
-| Always 50 mg vs always 40 mg | 8 | -0.733 | 0.653 | -2.012 | 0.546 | 0.262 |
+| Always 30 mg vs always 20 mg | 8 | 4.221 | 5.719 | -6.988 | 15.430 | 0.460 |
+| Always 40 mg vs always 20 mg | 8 | 3.867 | 7.783 | -11.387 | 19.122 | 0.619 |
+| Always 50 mg vs always 20 mg | 8 | -0.830 | 6.732 | -14.025 | 12.365 | 0.902 |
+| Always 40 mg vs always 30 mg | 8 | -0.354 | 8.043 | -16.117 | 15.410 | 0.965 |
+| Always 50 mg vs always 30 mg | 8 | -5.051 | 5.593 | -16.013 | 5.910 | 0.366 |
+| Always 50 mg vs always 40 mg | 8 | -4.698 | 8.769 | -21.885 | 12.490 | 0.592 |
 
 Pairwise estimated dose-strategy contrasts at week 8
 

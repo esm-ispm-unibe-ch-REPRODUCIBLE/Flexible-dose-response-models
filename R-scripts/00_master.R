@@ -12,8 +12,12 @@ library(MASS)
 library(rms)
 library(purrr)
 library(ggplot2)
+library(tidyr)
+library(geepack)
+library(lme4)
+library(lmerTest)
 # source the needed functions
-source("Functions.R")
+source("Functions2.R")
 
 ############################### Data preparation ####################################################
 
@@ -319,7 +323,7 @@ ipcw_weight_summaries <- lapply(
 ipcw_weight_summaries
 
 
-#### Plots
+#### Plots for step1 
 
 ## plot 1  Censoring per week (to see if we will use it with rcs or with linear model)
 
@@ -355,11 +359,12 @@ censoring_plot<-ggplot(observed_censor_week, aes(x = visit, y = observed_p_censo
 censoring_plot
 
 ### Plot 2
-
 model_dat <- analysis_trials$trial_1 %>%
   dplyr::filter(use_treatment_weight)
 
 mean_outcome_0 <- mean(model_dat$outcome_0, na.rm = TRUE)
+
+dose_history_levels <- c(0, 10, 20, 30, 40, 50)
 
 profile_dat <- tidyr::expand_grid(
   visit = 1:8,
@@ -374,7 +379,8 @@ profile_dat <- tidyr::expand_grid(
       seq(0, -15, length.out = n())
     ),
     side.effects = 4,
-    outcome_0 = mean_outcome_0
+    outcome_0 = mean_outcome_0,
+    dose_lag1_f = factor(dose_lag1, levels = dose_history_levels)
   ) %>%
   ungroup()
 
@@ -415,26 +421,195 @@ dose_plot <- ggplot(plot_dat, aes(x = visit, y = probability, color = dose, grou
 
 dose_plot
 
+###################################### STEP 2: MSM #######################################
+###################################### Predictions with 95% CI #######################################
 
+msm_models <- lapply(
+  analysis_trials,
+  fit_weighted_msm,
+  weight_var = "SW_total_trunc",
+  visit_df = 3
+)
 
+model <- msm_models$trial_1
 
+# Analysis data used for predictions and n per visit
+model_dat <- analysis_trials$trial_1 %>%
+  dplyr::filter(use_msm, !is.na(SW_total_trunc))
 
+visits <- 1:8
+mean_outcome_0 <- mean(model_dat$outcome_0, na.rm = TRUE)
 
+# Prediction dataset under sustained dose strategies
+strategy_dat <- dplyr::bind_rows(
+  lapply(
+    c(20, 30, 40, 50),
+    make_strategy_data,
+    visits = visits,
+    outcome_0_value = mean_outcome_0
+  )
+)
 
+# Make sure prediction factor levels match the fitted model data
+model_fit_dat <- attr(model, "model_data")
 
+factor_vars <- c("dose_lag1_f", "dose_lag2_f", "dose_lag3_f")
 
+for (v in factor_vars) {
+  if (v %in% names(strategy_dat) && v %in% names(model_fit_dat)) {
+    strategy_dat[[v]] <- factor(
+      strategy_dat[[v]],
+      levels = levels(model_fit_dat[[v]])
+    )
+  }
+}
 
+# Function to get predicted values and robust 95% CIs from fitted GEE
+predict_gee_ci <- function(model, newdata) {
+  beta <- coef(model)
+  
+  V <- model$geese$vbeta
+  dimnames(V) <- list(names(beta), names(beta))
+  
+  Terms <- stats::delete.response(stats::terms(model))
+  
+  X <- stats::model.matrix(
+    Terms,
+    newdata,
+    contrasts.arg = model$contrasts,
+    xlev = model$xlevels
+  )
+  
+  # Add zero columns if a factor level was absent in newdata
+  missing_cols <- setdiff(names(beta), colnames(X))
+  if (length(missing_cols) > 0) {
+    X <- cbind(
+      X,
+      matrix(
+        0,
+        nrow = nrow(X),
+        ncol = length(missing_cols),
+        dimnames = list(NULL, missing_cols)
+      )
+    )
+  }
+  
+  X <- X[, names(beta), drop = FALSE]
+  
+  pred <- as.numeric(X %*% beta)
+  se <- sqrt(diag(X %*% V %*% t(X)))
+  
+  newdata %>%
+    dplyr::mutate(
+      pred_delta_outcome = pred,
+      se = se,
+      lower_95 = pred_delta_outcome - qnorm(0.975) * se,
+      upper_95 = pred_delta_outcome + qnorm(0.975) * se
+    )
+}
 
+strategy_dat <- predict_gee_ci(model, strategy_dat)
 
+# Number of observed patients contributing at each visit
+n_dat <- model_dat %>%
+  dplyr::group_by(visit) %>%
+  dplyr::summarise(
+    n = dplyr::n_distinct(pid),
+    .groups = "drop"
+  ) %>%
+  dplyr::filter(visit %in% visits)
 
+# Position for n labels below the plotted trajectories
+y_range <- range(
+  c(strategy_dat$lower_95, strategy_dat$upper_95),
+  na.rm = TRUE
+)
 
+y_n <- y_range[1] - 0.10 * diff(y_range)
 
+# Plot with points, lines, error bars, and n below x-axis
 
+strategy_plot <- ggplot(
+  strategy_dat,
+  aes(
+    x = visit,
+    y = pred_delta_outcome,
+    group = strategy,
+    color = strategy,
+    linetype = strategy,
+    shape = strategy
+  )
+) +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    linewidth = 0.4,
+    color = "grey60"
+  ) +
+  geom_ribbon(
+    aes(
+      ymin = lower_95,
+      ymax = upper_95,
+      fill = strategy
+    ),
+    alpha = 0.12,
+    color = NA,
+    show.legend = FALSE
+  ) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  geom_text(
+    data = n_dat,
+    aes(x = visit, y = y_n, label = n),
+    inherit.aes = FALSE,
+    size = 3
+  ) +
+  annotate(
+    "text",
+    x = min(n_dat$visit) - 0.35,
+    y = y_n,
+    label = "n=",
+    hjust = 1,
+    size = 3
+  ) +
+  scale_x_continuous(
+    breaks = visits
+  ) +
+  labs(
+    x = "Weeks from randomization",
+    y = "Predicted HAMD improvement from baseline",
+    color = "Dose strategy",
+    linetype = "Dose strategy",
+    shape = "Dose strategy",
+    title = "Predicted HAMD improvement under sustained dose strategies",
+    subtitle = paste0(
+      "Baseline HAMD fixed at sample mean: ",
+      round(mean_outcome_0, 1),
+      "; shaded areas show pointwise 95% CIs"
+    )
+  ) +
+  coord_cartesian(clip = "off") +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.margin = margin(10, 10, 30, 10),
+    panel.grid.major.y = element_line(color = "grey90", linewidth = 0.3),
+    panel.grid.major.x = element_blank(),
+    
+    legend.position = c(0.80, 0.25),
+    legend.background = element_rect(fill = "white", colour = "black"),
+    legend.key = element_rect(fill = "white", colour = NA)
+  )
 
+strategy_plot
 
+week8_pairwise_effects <- estimate_all_pairwise_strategy_contrasts(
+  model = msm_models$trial_1,
+  target_visit = 8,
+  strategy_doses = c(20, 30, 40, 50)
+)
 
-
-
+week8_pairwise_effects
 
 
 

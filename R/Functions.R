@@ -1,28 +1,70 @@
-######################################### R-script with all functions needed for ################################
-###########################          Flexible dose-response models                 #####################
-
-
-######################### Functions for data preperation#################################
-########################################################################################
-
-### Function that prepares the needed variable for the IPTW/MSM analysis 
-
 max_followup_visit <- 8
+
+locf_simple <- function(x) {
+  out <- x
+  last <- NA
+  
+  for (i in seq_along(out)) {
+    if (!is.na(out[i])) {
+      last <- out[i]
+    } else if (!is.na(last)) {
+      out[i] <- last
+    }
+  }
+  
+  out
+}
+
+categorise_to_dose_level <- function(x, levels) {
+  levels <- sort(as.numeric(levels))
+  
+  if (length(levels) < 2) {
+    return(factor(x, levels = levels))
+  }
+  
+  cut_points <- (levels[-1] + levels[-length(levels)]) / 2
+  breaks <- c(-Inf, cut_points, Inf)
+  
+  factor(
+    as.numeric(as.character(cut(
+      x,
+      breaks = breaks,
+      labels = levels,
+      include.lowest = TRUE,
+      right = TRUE
+    ))),
+    levels = levels
+  )
+}
+
+add_dose_history_factors <- function(data, dose_history_levels = c(0, 10, 20, 30, 40, 50)) {
+  data %>%
+    dplyr::mutate(
+      dose_lag1_f = factor(dose_lag1, levels = dose_history_levels),
+      dose_lag2_f = factor(dose_lag2, levels = dose_history_levels),
+      dose_lag3_f = factor(dose_lag3, levels = dose_history_levels),
+      avg_dose_before_lag3_f = categorise_to_dose_level(
+        avg_dose_before_lag3,
+        levels = dose_history_levels
+      )
+    )
+}
+
 prepare_dose_response_data <- function(
-  data,
-  treatment_name = "PAROXETINE",
-  visit_min = 0,
-  visit_max = 8,
-  dose_levels = c(10, 20, 30, 40, 50),
-  dose_history_levels = c(0, 10, 20, 30, 40, 50)
+    data,
+    treatment_name = "PAROXETINE",
+    visit_min = 0,
+    visit_max = 8,
+    dose_levels = c(10, 20, 30, 40, 50),
+    dose_history_levels = c(0, 10, 20, 30, 40, 50)
 ) {
   data %>%
-    filter(
+    dplyr::filter(
       treat == treatment_name,
       visit >= visit_min,
       visit <= visit_max
     ) %>%
-    mutate(
+    dplyr::mutate(
       pid = as.factor(pid),
       studyid = as.factor(studyid),
       sex = as.factor(sex),
@@ -32,64 +74,62 @@ prepare_dose_response_data <- function(
       dose = as.numeric(dose),
       outcome = as.numeric(outcome),
       side.effects = as.numeric(side.effects),
-      side.effects_model = case_when(
+      
+      side.effects_model = dplyr::case_when(
         visit == 0 ~ 0,
         TRUE ~ side.effects
       ),
-      side.effects = case_when(
+      side.effects = dplyr::case_when(
         visit == 0 ~ 0,
         TRUE ~ side.effects
       ),
-      dose_f = factor(dose, levels = dose_levels, ordered = TRUE)
+      
+      dose_f = factor(dose, levels = dose_levels, ordered = TRUE),
+      dose_current_f = factor(dose, levels = dose_levels)
     ) %>%
-    arrange(pid, visit) %>%
-    group_by(pid) %>%
-    mutate(
+    dplyr::arrange(pid, visit) %>%
+    dplyr::group_by(pid) %>%
+    dplyr::mutate(
       baseline_visit = min(visit, na.rm = TRUE),
       is_baseline = visit == baseline_visit,
       
       outcome_0 = outcome[which.min(visit)],
       delta_outcome = outcome_0 - outcome,
       
-      dose_lag1 = coalesce(lag(dose, 1), 0),
-      dose_lag2 = coalesce(lag(dose, 2), 0),
-      dose_lag3 = coalesce(lag(dose, 3), 0),
+      dose_lag1 = dplyr::coalesce(dplyr::lag(dose, 1), 0),
+      dose_lag2 = dplyr::coalesce(dplyr::lag(dose, 2), 0),
+      dose_lag3 = dplyr::coalesce(dplyr::lag(dose, 3), 0),
       
-      delta_outcome_locf = na.locf(delta_outcome, na.rm = FALSE),
-      side.effects_model_locf = na.locf(side.effects_model, na.rm = FALSE),
+      delta_outcome_locf = locf_simple(delta_outcome),
+      side.effects_model_locf = locf_simple(side.effects_model),
       
-      delta_outcome_lag1 = coalesce(lag(delta_outcome_locf), 0),
-      side.effects_lag1 = coalesce(lag(side.effects_model_locf), 0),
+      delta_outcome_lag1 = dplyr::coalesce(dplyr::lag(delta_outcome_locf), 0),
+      side.effects_lag1 = dplyr::coalesce(dplyr::lag(side.effects_model_locf), 0),
       
-      
-      next_visit = lead(visit),
-      R_next = case_when(
+      next_visit = dplyr::lead(visit),
+      R_next = dplyr::case_when(
         visit >= max_followup_visit ~ NA_integer_,
         !is.na(next_visit) ~ 1L,
         is.na(next_visit) ~ 0L
       ),
       
-      avg_dose_before_lag3 = sapply(seq_along(dose), function(j) {
-        if (j <= 3) {
+      avg_dose_before_lag3 = vapply(seq_along(dose), function(j) {
+        if (j <= 4) {
+          return(0)
+        }
+        
+        early_doses <- dose[seq_len(j - 4)]
+        
+        if (all(is.na(early_doses))) {
           0
         } else {
-          mean(dose[seq_len(j - 3)], na.rm = TRUE)
+          mean(early_doses, na.rm = TRUE)
         }
-      })
+      }, numeric(1))
     ) %>%
-    ungroup() %>%
-    mutate(
-      dose_f = factor(dose, levels = dose_levels, ordered = TRUE),
-      
-      dose_lag1_f = factor(dose_lag1, levels = dose_history_levels),
-      dose_lag2_f = factor(dose_lag2, levels = dose_history_levels),
-      dose_lag3_f = factor(dose_lag3, levels = dose_history_levels),
-      
-      avg_dose_before_lag3_f = factor(
-        avg_dose_before_lag3,
-        levels = dose_history_levels
-      ),
-      
+    dplyr::ungroup() %>%
+    add_dose_history_factors(dose_history_levels = dose_history_levels) %>%
+    dplyr::mutate(
       use_treatment_weight = !is_baseline &
         !is.na(dose_f) &
         !is.na(delta_outcome) &
@@ -98,7 +138,7 @@ prepare_dose_response_data <- function(
       
       use_censoring_weight = !is_baseline &
         !is.na(R_next) &
-        !is.na(dose) &
+        !is.na(dose_current_f) &
         !is.na(delta_outcome) &
         !is.na(side.effects) &
         !is.na(outcome_0) &
@@ -109,23 +149,25 @@ prepare_dose_response_data <- function(
         !is.na(delta_outcome) &
         !is.na(outcome_0) &
         !is.na(age) &
-        !is.na(sex)
+        !is.na(sex) &
+        !is.na(dose_lag1_f) &
+        !is.na(dose_lag2_f) &
+        !is.na(dose_lag3_f) &
+        !is.na(avg_dose_before_lag3_f)
     )
 }
 
-## check how many visits are used in each model
 summarise_dose_response_data <- function(data) {
   data %>%
-    summarise(
-      n_rows = n(),
-      n_patients = n_distinct(pid),
+    dplyr::summarise(
+      n_rows = dplyr::n(),
+      n_patients = dplyr::n_distinct(pid),
       n_treatment_weight_rows = sum(use_treatment_weight),
       n_censoring_weight_rows = sum(use_censoring_weight),
       n_msm_rows = sum(use_msm)
     )
 }
 
-## Inspect also visually what you want
 make_vars_check <- function(data) {
   data %>%
     dplyr::select(
@@ -139,34 +181,33 @@ make_vars_check <- function(data) {
       treat,
       side.effects,
       dose_f,
+      dose_current_f,
       outcome_0,
       delta_outcome,
-      dose_lag1_f
+      dose_lag1_f,
+      dose_lag2_f,
+      dose_lag3_f,
+      avg_dose_before_lag3,
+      avg_dose_before_lag3_f
     )
 }
 
-
-
-###################################### STEP 1: IPTW #######################################
-
-
-#### Step 1a; IPTW for dose
-#denominator model
 fit_iptw_denominator_model <- function(data, visit_df = 3) {
   model_dat <- data %>%
     dplyr::filter(use_treatment_weight) %>%
-    mutate(
+    dplyr::mutate(
       dose_f = droplevels(dose_f),
-      dose_lag1<-as.numeric(dose_lag1)
+      dose_lag1_f = droplevels(dose_lag1_f)
     )
   
-  polr(
-    dose_f ~ rcs(visit, visit_df) +
+  MASS::polr(
+    dose_f ~
+      rms::rcs(visit, visit_df) +
       delta_outcome +
       side.effects +
-      dose_lag1 +
-      dose_lag1:delta_outcome +
-      dose_lag1:side.effects +
+      dose_lag1_f +
+      dose_lag1_f:delta_outcome +
+      dose_lag1_f:side.effects +
       outcome_0,
     data = model_dat,
     Hess = TRUE,
@@ -174,7 +215,25 @@ fit_iptw_denominator_model <- function(data, visit_df = 3) {
   )
 }
 
-#export table for results
+fit_iptw_numerator_model <- function(data, visit_df = 3) {
+  model_dat <- data %>%
+    dplyr::filter(use_treatment_weight) %>%
+    dplyr::mutate(
+      dose_f = droplevels(dose_f),
+      dose_lag1_f = droplevels(dose_lag1_f)
+    )
+  
+  MASS::polr(
+    dose_f ~
+      rms::rcs(visit, visit_df) +
+      dose_lag1_f +
+      outcome_0,
+    data = model_dat,
+    Hess = TRUE,
+    method = "logistic"
+  )
+}
+
 make_polr_coef_table <- function(model) {
   coef_tab <- coef(summary(model))
   
@@ -184,32 +243,8 @@ make_polr_coef_table <- function(model) {
   )
 }
 
-## numerator model
-
-fit_iptw_numerator_model <- function(data, visit_df = 3) {
-  model_dat <- data %>%
-    filter(use_treatment_weight) %>%
-    mutate(
-      dose_f = droplevels(dose_f),
-      dose_lag1 = as.numeric(dose_lag1),
-      dose_lag1<-as.numeric(dose_lag1)
-    )
-  
-  polr(
-    dose_f ~ rcs(visit, visit_df) +
-      dose_lag1 +
-      outcome_0,
-    data = model_dat,
-    Hess = TRUE,
-    method = "logistic"
-  )
-}
-
-
-### Function to extract the observed-dose probability
 get_observed_dose_prob <- function(model, data, outcome_var = "dose_f") {
   prob_mat <- predict(model, newdata = data, type = "probs")
-  
   observed_dose <- as.character(data[[outcome_var]])
   
   prob_mat[
@@ -219,18 +254,18 @@ get_observed_dose_prob <- function(model, data, outcome_var = "dose_f") {
     )
   ]
 }
-### Function to add IPTW treatment weights
+
 add_iptw_treatment_weights <- function(
-  data,
-  denominator_model,
-  numerator_model,
-  min_prob = 1e-6
+    data,
+    denominator_model,
+    numerator_model,
+    min_prob = 1e-6
 ) {
   weight_dat <- data %>%
-    filter(use_treatment_weight) %>%
-    mutate(
+    dplyr::filter(use_treatment_weight) %>%
+    dplyr::mutate(
       dose_f = droplevels(dose_f),
-      dose_lag1 = as.numeric(dose_lag1)
+      dose_lag1_f = droplevels(dose_lag1_f)
     )
   
   weight_dat$p_dose_denominator <- get_observed_dose_prob(
@@ -246,20 +281,20 @@ add_iptw_treatment_weights <- function(
   )
   
   weight_dat <- weight_dat %>%
-    mutate(
+    dplyr::mutate(
       p_dose_denominator = pmax(p_dose_denominator, min_prob),
       p_dose_numerator = pmax(p_dose_numerator, min_prob),
       SW_treatment = p_dose_numerator / p_dose_denominator
     ) %>%
-    arrange(pid, visit) %>%
-    group_by(pid) %>%
-    mutate(
+    dplyr::arrange(pid, visit) %>%
+    dplyr::group_by(pid) %>%
+    dplyr::mutate(
       cSW_treatment = cumprod(SW_treatment)
     ) %>%
-    ungroup()
+    dplyr::ungroup()
   
   data %>%
-    left_join(
+    dplyr::left_join(
       weight_dat %>%
         dplyr::select(
           pid,
@@ -273,20 +308,18 @@ add_iptw_treatment_weights <- function(
     )
 }
 
-#### Step 1b; IPTW for censoring
-#denominator model
-
 fit_ipcw_denominator_model <- function(data) {
   model_dat <- data %>%
     dplyr::filter(use_censoring_weight) %>%
-    mutate(
+    dplyr::mutate(
       sex = droplevels(sex),
-      dose_lag1<-as.numeric(dose_lag1)
+      dose_current_f = droplevels(dose_current_f)
     )
   
   glm(
-    R_next ~ visit +
-      dose +
+    R_next ~
+      visit +
+      dose_current_f +
       delta_outcome +
       delta_outcome_lag1 +
       side.effects +
@@ -299,18 +332,18 @@ fit_ipcw_denominator_model <- function(data) {
   )
 }
 
-#numerator model
 fit_ipcw_numerator_model <- function(data) {
   model_dat <- data %>%
     dplyr::filter(use_censoring_weight) %>%
-    mutate(
+    dplyr::mutate(
       sex = droplevels(sex),
-      dose_lag1<-as.numeric(dose_lag1)
+      dose_current_f = droplevels(dose_current_f)
     )
   
   glm(
-    R_next ~ visit +
-      dose +
+    R_next ~
+      visit +
+      dose_current_f +
       outcome_0 +
       age +
       sex,
@@ -318,16 +351,16 @@ fit_ipcw_numerator_model <- function(data) {
     family = binomial()
   )
 }
-# add the weigths in the data
+
 add_ipcw_censoring_weights <- function(
-  data,
-  denominator_model,
-  numerator_model,
-  min_prob = 1e-6
+    data,
+    denominator_model,
+    numerator_model,
+    min_prob = 1e-6
 ) {
   data <- data %>%
     dplyr::select(
-      -any_of(c(
+      -dplyr::any_of(c(
         "p_censor_denominator_raw",
         "p_censor_numerator_raw",
         "p_censor_denominator",
@@ -339,9 +372,9 @@ add_ipcw_censoring_weights <- function(
   
   weight_dat <- data %>%
     dplyr::filter(use_censoring_weight) %>%
-    mutate(
+    dplyr::mutate(
       sex = droplevels(sex),
-      dose_f = droplevels(dose_f)
+      dose_current_f = droplevels(dose_current_f)
     )
   
   weight_dat$p_censor_denominator_raw <- predict(
@@ -357,20 +390,20 @@ add_ipcw_censoring_weights <- function(
   )
   
   weight_dat <- weight_dat %>%
-    mutate(
+    dplyr::mutate(
       p_censor_denominator = pmax(p_censor_denominator_raw, min_prob),
       p_censor_numerator = pmax(p_censor_numerator_raw, min_prob),
       SW_censoring = p_censor_numerator / p_censor_denominator
     ) %>%
-    arrange(pid, visit) %>%
-    group_by(pid) %>%
-    mutate(
+    dplyr::arrange(pid, visit) %>%
+    dplyr::group_by(pid) %>%
+    dplyr::mutate(
       cSW_censoring = cumprod(SW_censoring)
     ) %>%
-    ungroup()
+    dplyr::ungroup()
   
   data %>%
-    left_join(
+    dplyr::left_join(
       weight_dat %>%
         dplyr::select(
           pid,
@@ -386,13 +419,10 @@ add_ipcw_censoring_weights <- function(
     )
 }
 
-#### Step 1c: IPTW combined for dose and censoring
-
-## multiply the weigths
 add_total_weights <- function(data) {
   data %>%
-    mutate(
-      SW_total = case_when(
+    dplyr::mutate(
+      SW_total = dplyr::case_when(
         use_msm &
           !is.na(cSW_treatment) &
           !is.na(cSW_censoring) ~ cSW_treatment * cSW_censoring,
@@ -401,26 +431,25 @@ add_total_weights <- function(data) {
     )
 }
 
-#check missingness
 check_total_weight_missingness <- function(data) {
   data %>%
     dplyr::filter(use_msm) %>%
-    summarise(
-      n_msm_rows = n(),
-      n_patients = n_distinct(pid),
+    dplyr::summarise(
+      n_msm_rows = dplyr::n(),
+      n_patients = dplyr::n_distinct(pid),
       missing_cSW_treatment = sum(is.na(cSW_treatment)),
       missing_cSW_censoring = sum(is.na(cSW_censoring)),
       missing_SW_total = sum(is.na(SW_total)),
       percent_missing_SW_total = 100 * mean(is.na(SW_total))
     )
 }
-##summary of weights
+
 summarise_total_weights <- function(data) {
   data %>%
     dplyr::filter(use_msm, !is.na(SW_total)) %>%
-    summarise(
-      n = n(),
-      n_patients = n_distinct(pid),
+    dplyr::summarise(
+      n = dplyr::n(),
+      n_patients = dplyr::n_distinct(pid),
       
       mean_SW_total = mean(SW_total),
       sd_SW_total = sd(SW_total),
@@ -437,7 +466,7 @@ summarise_total_weights <- function(data) {
       ESS_SW_total = sum(SW_total)^2 / sum(SW_total^2)
     )
 }
-## truncate to 1st and 99th
+
 truncate_total_weights <- function(data, lower = 0.01, upper = 0.99) {
   cutoffs <- quantile(
     data$SW_total,
@@ -446,8 +475,8 @@ truncate_total_weights <- function(data, lower = 0.01, upper = 0.99) {
   )
   
   data %>%
-    mutate(
-      SW_total_trunc = case_when(
+    dplyr::mutate(
+      SW_total_trunc = dplyr::case_when(
         is.na(SW_total) ~ NA_real_,
         SW_total < cutoffs[[1]] ~ as.numeric(cutoffs[[1]]),
         SW_total > cutoffs[[2]] ~ as.numeric(cutoffs[[2]]),
@@ -456,13 +485,12 @@ truncate_total_weights <- function(data, lower = 0.01, upper = 0.99) {
     )
 }
 
-### summarise truncated weights
 summarise_total_truncated_weights <- function(data) {
   data %>%
     dplyr::filter(use_msm, !is.na(SW_total_trunc)) %>%
-    summarise(
-      n = n(),
-      n_patients = n_distinct(pid),
+    dplyr::summarise(
+      n = dplyr::n(),
+      n_patients = dplyr::n_distinct(pid),
       
       mean_SW_total_trunc = mean(SW_total_trunc),
       sd_SW_total_trunc = sd(SW_total_trunc),
@@ -480,13 +508,11 @@ summarise_total_truncated_weights <- function(data) {
     )
 }
 
-##check how many lines were truncated
-
 check_truncation <- function(data) {
   data %>%
     dplyr::filter(use_msm, !is.na(SW_total)) %>%
-    summarise(
-      n = n(),
+    dplyr::summarise(
+      n = dplyr::n(),
       n_lower_truncated = sum(SW_total != SW_total_trunc & SW_total < SW_total_trunc),
       n_upper_truncated = sum(SW_total != SW_total_trunc & SW_total > SW_total_trunc),
       n_any_truncated = sum(SW_total != SW_total_trunc),
@@ -494,22 +520,23 @@ check_truncation <- function(data) {
     )
 }
 
-#### check of the balance before and after
 weighted_var <- function(x, w) {
   ok <- !is.na(x) & !is.na(w)
   x <- x[ok]
   w <- w[ok]
   
-  if (length(x) <= 1 || sum(w) == 0) return(NA_real_)
+  if (length(x) <= 1 || sum(w) == 0) {
+    return(NA_real_)
+  }
   
   mu <- weighted.mean(x, w)
   sum(w * (x - mu)^2) / sum(w)
 }
 
 assess_balance_by_window <- function(
-  data,
-  covariates = c("delta_outcome", "side.effects"),
-  weight_var = NULL
+    data,
+    covariates = c("delta_outcome", "side.effects"),
+    weight_var = NULL
 ) {
   dat <- data %>%
     dplyr::filter(
@@ -574,13 +601,12 @@ assess_balance_by_window <- function(
   })
 }
 
-###only for IPTW
 summarise_iptw_treatment_weights <- function(data) {
   data %>%
     dplyr::filter(use_treatment_weight, !is.na(cSW_treatment)) %>%
-    summarise(
-      n = n(),
-      n_patients = n_distinct(pid),
+    dplyr::summarise(
+      n = dplyr::n(),
+      n_patients = dplyr::n_distinct(pid),
       
       mean_SW_treatment = mean(SW_treatment),
       sd_SW_treatment = sd(SW_treatment),
@@ -610,14 +636,12 @@ summarise_iptw_treatment_weights <- function(data) {
     )
 }
 
-###Only for IPCW
-
 summarise_ipcw_censoring_weights <- function(data) {
   data %>%
     dplyr::filter(use_censoring_weight, !is.na(cSW_censoring)) %>%
-    summarise(
-      n = n(),
-      n_patients = n_distinct(pid),
+    dplyr::summarise(
+      n = dplyr::n(),
+      n_patients = dplyr::n_distinct(pid),
       
       mean_SW_censoring = mean(SW_censoring),
       sd_SW_censoring = sd(SW_censoring),
@@ -645,4 +669,338 @@ summarise_ipcw_censoring_weights <- function(data) {
       
       ESS_cSW_censoring = sum(cSW_censoring)^2 / sum(cSW_censoring^2)
     )
+}
+fit_weighted_msm <- function(
+    data,
+    weight_var = "SW_total_trunc",
+    visit_df = 3,
+    corstr = "independence"
+) {
+  needed_vars <- c(
+    "pid",
+    "visit",
+    "delta_outcome",
+    "outcome_0",
+    "dose_lag1_f",
+    "dose_lag2_f",
+    "dose_lag3_f",
+    "avg_dose_before_lag3",
+    "use_msm",
+    weight_var
+  )
+  
+  missing_vars <- setdiff(needed_vars, names(data))
+  
+  if (length(missing_vars) > 0) {
+    stop("Missing variables: ", paste(missing_vars, collapse = ", "))
+  }
+  
+  model_dat <- data %>%
+    dplyr::filter(
+      use_msm,
+      !is.na(.data[[weight_var]]),
+      .data[[weight_var]] > 0,
+      !is.na(delta_outcome),
+      !is.na(outcome_0),
+      !is.na(visit),
+      !is.na(dose_lag1_f),
+      !is.na(dose_lag2_f),
+      !is.na(dose_lag3_f),
+      !is.na(avg_dose_before_lag3)
+    ) %>%
+    dplyr::mutate(
+      final_weight = .data[[weight_var]],
+      dose_lag1_f = droplevels(dose_lag1_f),
+      dose_lag2_f = droplevels(dose_lag2_f),
+      dose_lag3_f = droplevels(dose_lag3_f)
+    ) %>%
+    dplyr::arrange(pid, visit)
+  
+  msm_formula <- stats::as.formula(
+    paste0(
+      "delta_outcome ~ ",
+      "rms::rcs(visit, ", visit_df, ") * (outcome_0 + dose_lag1_f) + ",
+      "dose_lag2_f + ",
+      "dose_lag3_f + ",
+      "avg_dose_before_lag3"
+    )
+  )
+  
+  fit <- geepack::geeglm(
+    msm_formula,
+    id = pid,
+    waves = visit,
+    data = model_dat,
+    weights = final_weight,
+    family = gaussian(link = "identity"),
+    corstr = corstr,
+    std.err = "san.se"
+  )
+  
+  attr(fit, "model_data") <- model_dat
+  attr(fit, "dose_history_levels") <- levels(model_dat$dose_lag1_f)
+  
+  fit
+}
+
+make_gee_coef_table <- function(model) {
+  coef_tab <- as.data.frame(coef(summary(model)))
+  
+  data.frame(
+    Term = rownames(coef_tab),
+    coef_tab,
+    row.names = NULL,
+    check.names = FALSE
+  )
+}
+
+make_gee_coef_table_robust_naive <- function(model) {
+  beta <- coef(model)
+  
+  V_robust <- model$geese$vbeta
+  V_naive <- model$geese$vbeta.naiv
+  
+  dimnames(V_robust) <- list(names(beta), names(beta))
+  dimnames(V_naive) <- list(names(beta), names(beta))
+  
+  robust_se <- sqrt(diag(V_robust))
+  naive_se <- sqrt(diag(V_naive))
+  z_robust <- beta / robust_se
+  
+  data.frame(
+    Term = names(beta),
+    Estimate = beta,
+    Naive_SE = naive_se,
+    Robust_SE = robust_se,
+    Wald_robust = z_robust^2,
+    p_value_robust = 2 * pnorm(abs(z_robust), lower.tail = FALSE),
+    row.names = NULL,
+    check.names = FALSE
+  )
+}
+
+make_strategy_data <- function(
+    strategy_dose,
+    visits,
+    outcome_0_value,
+    baseline_dose = strategy_dose,
+    dose_history_levels = c(0, 10, 20, 30, 40, 50)
+) {
+  visit_order <- seq_along(visits)
+  
+  dat <- tibble::tibble(
+    visit = visits,
+    visit_order = visit_order,
+    strategy_dose = strategy_dose,
+    strategy = paste0("Always ", strategy_dose, " mg"),
+    outcome_0 = outcome_0_value
+  ) %>%
+    dplyr::mutate(
+      dose_lag1 = dplyr::if_else(
+        visit_order == 1,
+        baseline_dose,
+        strategy_dose
+      ),
+      dose_lag2 = dplyr::case_when(
+        visit_order == 1 ~ 0,
+        visit_order == 2 ~ baseline_dose,
+        TRUE ~ strategy_dose
+      ),
+      dose_lag3 = dplyr::case_when(
+        visit_order <= 2 ~ 0,
+        visit_order == 3 ~ baseline_dose,
+        TRUE ~ strategy_dose
+      ),
+      avg_dose_before_lag3 = dplyr::case_when(
+        visit_order <= 2 ~ 0,
+        TRUE ~ (baseline_dose + pmax(visit_order - 3, 0) * strategy_dose) /
+          (visit_order - 2)
+      )
+    ) %>%
+    add_dose_history_factors(dose_history_levels = dose_history_levels)
+  
+  dat
+}
+
+make_strategy_history <- function(
+    strategy_dose,
+    target_visit = 8,
+    baseline_dose = strategy_dose,
+    outcome_0_value = NA_real_,
+    dose_history_levels = c(0, 10, 20, 30, 40, 50)
+) {
+  make_strategy_data(
+    strategy_dose = strategy_dose,
+    visits = seq_len(target_visit),
+    outcome_0_value = outcome_0_value,
+    baseline_dose = baseline_dose,
+    dose_history_levels = dose_history_levels
+  ) %>%
+    dplyr::filter(visit == target_visit) %>%
+    dplyr::slice_tail(n = 1)
+}
+
+estimate_all_pairwise_strategy_contrasts <- function(
+    model,
+    target_visit = 8,
+    strategy_doses = c(20, 30, 40, 50),
+    baseline_dose = NULL
+) {
+  model_dat <- attr(model, "model_data")
+  
+  if (is.null(model_dat)) {
+    stop("Model is missing model_data attribute.")
+  }
+  
+  outcome_0_value <- mean(model_dat$outcome_0, na.rm = TRUE)
+  dose_history_levels <- attr(model, "dose_history_levels")
+  
+  if (is.null(dose_history_levels)) {
+    dose_history_levels <- c(0, 10, 20, 30, 40, 50)
+  }
+  
+  strategy_histories <- dplyr::bind_rows(
+    lapply(strategy_doses, function(dose_value) {
+      make_strategy_history(
+        strategy_dose = dose_value,
+        target_visit = target_visit,
+        baseline_dose = if (is.null(baseline_dose)) dose_value else baseline_dose,
+        outcome_0_value = outcome_0_value,
+        dose_history_levels = dose_history_levels
+      )
+    })
+  )
+  
+  beta <- coef(model)
+  
+  V <- tryCatch(
+    vcov(model),
+    error = function(e) model$geese$vbeta
+  )
+  
+  dimnames(V) <- list(names(beta), names(beta))
+  
+  Terms <- stats::delete.response(stats::terms(model))
+  X <- stats::model.matrix(Terms, strategy_histories)
+  
+  missing_cols <- setdiff(names(beta), colnames(X))
+  if (length(missing_cols) > 0) {
+    X <- cbind(
+      X,
+      matrix(
+        0,
+        nrow = nrow(X),
+        ncol = length(missing_cols),
+        dimnames = list(NULL, missing_cols)
+      )
+    )
+  }
+  
+  X <- X[, names(beta), drop = FALSE]
+  
+  pairs <- t(combn(seq_along(strategy_doses), 2))
+  
+  pairwise_contrasts <- lapply(seq_len(nrow(pairs)), function(i) {
+    lower_id <- pairs[i, 1]
+    higher_id <- pairs[i, 2]
+    
+    lower_dose <- strategy_doses[lower_id]
+    higher_dose <- strategy_doses[higher_id]
+    
+    contrast_vector <- X[higher_id, ] - X[lower_id, ]
+    
+    estimate <- as.numeric(sum(contrast_vector * beta))
+    se <- sqrt(as.numeric(t(contrast_vector) %*% V %*% contrast_vector))
+    
+    tibble::tibble(
+      contrast = paste0(
+        "Always ", higher_dose,
+        " mg vs always ", lower_dose,
+        " mg"
+      ),
+      target_visit = target_visit,
+      estimate = estimate,
+      se = se,
+      lower_95 = estimate - qnorm(0.975) * se,
+      upper_95 = estimate + qnorm(0.975) * se,
+      p_value = 2 * pnorm(abs(estimate / se), lower.tail = FALSE)
+    )
+  })
+  
+  dplyr::bind_rows(pairwise_contrasts)
+}
+
+fit_weighted_lmm_msm <- function(
+    data,
+    weight_var = "SW_total_trunc",
+    visit_df = 3
+) {
+  needed_vars <- c(
+    "pid",
+    "visit",
+    "delta_outcome",
+    "outcome_0",
+    "dose_lag1_f",
+    "dose_lag2_f",
+    "dose_lag3_f",
+    "avg_dose_before_lag3_f",
+    "use_msm",
+    weight_var
+  )
+  
+  missing_vars <- setdiff(needed_vars, names(data))
+  
+  if (length(missing_vars) > 0) {
+    stop("Missing variables: ", paste(missing_vars, collapse = ", "))
+  }
+  
+  model_dat <- data %>%
+    dplyr::filter(
+      use_msm,
+      !is.na(.data[[weight_var]]),
+      .data[[weight_var]] > 0,
+      !is.na(delta_outcome),
+      !is.na(outcome_0),
+      !is.na(visit),
+      !is.na(dose_lag1_f),
+      !is.na(dose_lag2_f),
+      !is.na(dose_lag3_f),
+      !is.na(avg_dose_before_lag3_f)
+    ) %>%
+    dplyr::mutate(
+      final_weight = .data[[weight_var]],
+      dose_lag1_f = droplevels(dose_lag1_f),
+      dose_lag2_f = droplevels(dose_lag2_f),
+      dose_lag3_f = droplevels(dose_lag3_f),
+      avg_dose_before_lag3_f = droplevels(avg_dose_before_lag3_f)
+    ) %>%
+    dplyr::arrange(pid, visit)
+  
+  lmm_formula <- stats::as.formula(
+    paste0(
+      "delta_outcome ~ rms::rcs(visit, ", visit_df, ") * (",
+      "outcome_0 + ",
+      "dose_lag1_f + ",
+      "dose_lag2_f + ",
+      "dose_lag3_f + ",
+      "avg_dose_before_lag3_f",
+      ") + (1 | pid)"
+    )
+  )
+  
+  fit <- lmerTest::lmer(
+    lmm_formula,
+    data = model_dat,
+    weights = final_weight,
+    REML = FALSE,
+    control = lme4::lmerControl(
+      optimizer = "bobyqa",
+      optCtrl = list(maxfun = 100000)
+    )
+  )
+  
+  attr(fit, "model_data") <- model_dat
+  attr(fit, "dose_history_levels") <- levels(model_dat$dose_lag1_f)
+  
+  fit
 }
