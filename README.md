@@ -390,14 +390,13 @@ Y_{i0}
 ```
 
 is the observed history available for patient $i$ before the dose
-assignment at visit $t$. The term $f(\mathrm{week}_{it})$
-$`f(\mathrm{week}_{it})`$ $f(\mathrm{week}_{it}$ denotes a restricted
-cubic spline function of actual study week, specified with three knots
-at the 10th, 50th, and 90th percentiles of the observed visit
-distribution. In the ordinal dose-assignment model, the current dose
-$D_{it}$) was treated as an ordered categorical variable, and previous
-dose-history was represented categorically through $d_{it-1}$). We
-included interactions between previous dose, HAMD improvement, and
+assignment at visit $t$. The term $`f(\mathrm{week}_{it})`$ denotes a
+restricted cubic spline function of actual study week, specified with
+three knots at the 10th, 50th, and 90th percentiles of the observed
+visit distribution. In the ordinal dose-assignment model, the current
+dose $D_{it}$ was treated as an ordered categorical variable, and
+previous dose-history was represented categorically through $d_{it-1}$.
+We included interactions between previous dose, HAMD improvement, and
 side-effects in the denominator dose model. This allowed the
 dose-assignment model to reflect that the same clinical information may
 lead to different dose decisions depending on the dose the patient was
@@ -433,8 +432,9 @@ associated with a higher probability of receiving a higher dose, whereas
 a **negative coefficient** means that higher values of that variable are
 associated with a higher probability of receiving a lower dose. After
 fitting the ordinal model, predicted probabilities were obtained for
-each dose category. The denominator probability used in the dose weight
-was the fitted probability of the dose actually received:
+each dose category (see Appendix). The denominator probability used in
+the dose weight was the fitted probability of the dose actually
+received:
 
 ``` math
 \hat{p}_{it}^{D}
@@ -455,7 +455,7 @@ H_{it}^{*}
 =
 \left\{
 \mathrm{week}_{it},
-d_{i,t-1},
+d_{it-1},
 Y_{i0}
 \right\}
 ```
@@ -568,17 +568,17 @@ covariates:
 \begin{aligned}
 \mathrm{logit}
 \left\{
-\Pr\left(R_{i,t+1} = 1 \mid H_{it}^{C}\right)
+\Pr\left(R_{it+1} = 1 \mid H_{it}^{C}\right)
 \right\}
 &=
 \gamma_{0}
 + \gamma_{1} f(\mathrm{week}_{it})
 + \gamma_{2} d_{it}
 + \gamma_{3} \Delta Y_{it}
-+ \gamma_{4} \Delta Y_{i,t-1} \\
++ \gamma_{4} \Delta Y_{it-1} \\
 &\quad
 + \gamma_{5} S_{it}
-+ \gamma_{6} S_{i,t-1}
++ \gamma_{6} S_{it-1}
 + \gamma_{7} Y_{i0}
 + \gamma_{8} \mathrm{age}_{i}
 + \gamma_{9} \mathrm{sex}_{i}.
@@ -594,9 +594,9 @@ H_{it}^{C}
 \mathrm{week}_{it},
 d_{it},
 \Delta Y_{it},
-\Delta Y_{i,t-1},
+\Delta Y_{it-1},
 S_{it},
-S_{i,t-1},
+S_{it-1},
 Y_{i0},
 \mathrm{age}_{i},
 \mathrm{sex}_{i}
@@ -628,7 +628,7 @@ The denominator predicted probability is
 =
 \widehat{\Pr}
 \left(
-R_{i,t+1} = 1 \mid H_{it}^{C}
+R_{it+1} = 1 \mid H_{it}^{C}
 \right).
 ```
 
@@ -642,7 +642,7 @@ visit, current dose, and baseline covariates:
 \begin{aligned}
 \mathrm{logit}
 \left\{
-\Pr\left(R_{i,t+1} = 1 \mid H_{it}^{C*}\right)
+\Pr\left(R_{it+1} = 1 \mid H_{it}^{C*}\right)
 \right\}
 &=
 \delta_{0}
@@ -689,7 +689,7 @@ The numerator predicted probability was
 =
 \widehat{\Pr}
 \left(
-R_{i,t+1} = 1 \mid H_{it}^{C*}
+R_{it+1} = 1 \mid H_{it}^{C*}
 \right).
 ```
 
