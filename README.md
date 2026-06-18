@@ -365,10 +365,10 @@ less than or equal to d.
 + \alpha_1 f(\mathrm{week}_{it})
 + \alpha_2 \Delta Y_{it}
 + \alpha_3 S_{it}
-+ \alpha_4 d_{i,t-1} \\
++ \alpha_4 d_{it-1} \\
 &\quad
-+ \alpha_5 d_{i,t-1}\Delta Y_{it}
-+ \alpha_6 d_{i,t-1}S_{it}
++ \alpha_5 d_{it-1}\Delta Y_{it}
++ \alpha_6 d_{it-1}S_{it}
 + \alpha_7 Y_{i0}.
 \end{aligned}
 ```
@@ -382,9 +382,9 @@ H_{it}
 \mathrm{week}_{it},
 \Delta Y_{it},
 S_{it},
-d_{i,t-1},
-d_{i,t-1}S_{it},
-d_{i,t-1}\Delta Y_{it},
+d_{it-1},
+d_{it-1}S_{it},
+d_{it-1}\Delta Y_{it},
 Y_{i0}
 \right\}.
 ```
@@ -480,7 +480,7 @@ denotes the reduced observed history.
 &=
 \beta_{0c}
 + \beta_{1} f(\mathrm{week}_{it})
-+ \beta_{2} d_{i,t-1}
++ \beta_{2} d_{it-1}
 + \beta_{3} Y_{i0}.
 \end{aligned}
 ```
@@ -852,10 +852,10 @@ weights.
 
 Following the dose-history structure used by Lipkovich et al., the
 outcome model included recent dose history. The most recent dose
-$d_{i,t-1}$, the dose one visit earlier $d_{i,t-2}$, and the dose two
-visits earlier $d_{i,t-3}$ were represented categorically. A separate 0
+$d_{it-1}$, the dose one visit earlier $d_{it-2}$, and the dose two
+visits earlier $d_{it-3}$ were represented categorically. A separate 0
 category was retained where a lagged dose was not yet available. The
-average earlier dose, $\bar{d}_{i,<t-3}$, was kept continuous because it
+average earlier dose, $\bar{d}_{i<t-3}$, was kept continuous because it
 can take values that are not actual dose levels, for example 25 or 33.3
 mg.
 
@@ -868,30 +868,30 @@ The weighted MSM was specified as
 \eta_{0}
 + \eta_{1} f(\mathrm{week}_{it})
 + \eta_{2} Y_{i0}
-+ \eta_{3} d_{i,t-1}
-+ \eta_{4} d_{i,t-2} \\
++ \eta_{3} d_{it-1}
++ \eta_{4} d_{it-2} \\
 &\quad
-+ \eta_{5} d_{i,t-3}
-+ \eta_{6} \overline{d}_{i,\lt t-3}
++ \eta_{5} d_{it-3}
++ \eta_{6} \overline{d}_{i\lt t-3}
 + \eta_{7} Y_{i0} f(\mathrm{week}_{it}) \\ 
 &\quad 
-+ \eta_{8}\!\left(d_{i,t-1}, f(\mathrm{week}_{it})\right)
++ \eta_{8}\!\left(d_{it-1}, f(\mathrm{week}_{it})\right)
 + \varepsilon_{it}.
 \end{aligned}
 ```
 
-The term $f(\mathrm{week}_{it})$ denotes a restricted cubic spline
+The term $`f(\mathrm{week}_{it})`$ denotes a restricted cubic spline
 function of actual study week, with three knots at the 10th, 50th, and
-90th percentiles of the observed visit distribution. $(Y_{i0}$ is the
+90th percentiles of the observed visit distribution. $Y_{i0}$ is the
 baseline HAMD score. Following the dose-history structure used by
 Lipkovich et al., the outcome model included recent dose history. The
 most recent dose $d_{it-1}$, the dose one visit earlier $d_{it-2}$, and
 the dose two visits earlier $d_{it-3}$ were represented categorically.
-The average earlier dose, $\bar d_{i,<t-3}$, was kept continuous because
+The average earlier dose, $\bar d_{i<t-3}$, was kept continuous because
 it can take values that are not actual dose levels, for example 25 or
 33.3 mg. A separate 0 category was retained where a lagged dose was not
 yet available. For example, at the first post-baseline visit,
-$d_{it-2}$, $d_{it-3}$, and $\bar d_{i,<t-3}$ were set to 0 mg. We used
+$d_{it-2}$, $d_{it-3}$, and $\bar d_{i<t-3}$ were set to 0 mg. We used
 interactions between study week and the most recent dose category,
 allowing the effect of the most recent dose to vary over follow-up, and
 between baseline HAMD and week to allow patients with different baseline
