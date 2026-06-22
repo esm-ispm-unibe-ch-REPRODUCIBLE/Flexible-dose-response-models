@@ -21,6 +21,8 @@ Flexible dose-response models
     model](#predicted-probabilities-under-the-ordinal-dose-model)
   - [Alternative multinomial dose model for stabilized dose
     weights](#alternative-multinomial-dose-model-for-stabilized-dose-weights)
+  - [Predicted trajectories using multinomial
+    IPTW](#predicted-trajectories-using-multinomial-iptw)
 
 ## Clinical outcome, safety measure, time-varying confounders, and dataset
 
@@ -1310,5 +1312,150 @@ dose category. It also relies on the independence of irrelevant
 alternatives assumption, meaning that the odds comparing two dose
 categories are assumed not to depend on the presence or characteristics
 of the other dose categories.
+
+#### Reasults using multiomial model for the IPTW step
+
+| Dose_level_vs_reference | Term | Estimate | SE | z_value | p_value |
+|:---|:---|---:|---:|---:|---:|
+| 30 | (Intercept) | 0.166 | 0.983 | 0.169 | 0.866 |
+| 30 | rms::rcs(visit, visit_df)visit | 0.047 | 0.227 | 0.205 | 0.837 |
+| 30 | rms::rcs(visit, visit_df)visit’ | -0.154 | 0.348 | -0.442 | 0.658 |
+| 30 | delta_outcome | 0.001 | 0.022 | 0.038 | 0.969 |
+| 30 | side.effects | -0.166 | 0.055 | -3.001 | 0.003 |
+| 30 | dose_lag1_f30 | 1.825 | 0.729 | 2.502 | 0.012 |
+| 30 | dose_lag1_f40 | 1.823 | 0.931 | 1.958 | 0.050 |
+| 30 | dose_lag1_f50 | 0.330 | 0.977 | 0.338 | 0.735 |
+| 30 | outcome_0 | -0.016 | 0.032 | -0.498 | 0.619 |
+| 30 | delta_outcome:dose_lag1_f30 | -0.017 | 0.036 | -0.470 | 0.638 |
+| 30 | delta_outcome:dose_lag1_f40 | 0.012 | 0.042 | 0.285 | 0.775 |
+| 30 | delta_outcome:dose_lag1_f50 | 0.038 | 0.051 | 0.739 | 0.460 |
+| 30 | side.effects:dose_lag1_f30 | -0.064 | 0.108 | -0.597 | 0.550 |
+| 30 | side.effects:dose_lag1_f40 | -0.119 | 0.142 | -0.838 | 0.402 |
+| 30 | side.effects:dose_lag1_f50 | -0.071 | 0.136 | -0.519 | 0.604 |
+| 40 | (Intercept) | -0.216 | 1.136 | -0.190 | 0.849 |
+| 40 | rms::rcs(visit, visit_df)visit | 0.180 | 0.266 | 0.675 | 0.500 |
+| 40 | rms::rcs(visit, visit_df)visit’ | -0.584 | 0.408 | -1.433 | 0.152 |
+| 40 | delta_outcome | 0.009 | 0.027 | 0.348 | 0.728 |
+| 40 | side.effects | -0.394 | 0.078 | -5.050 | 0.000 |
+| 40 | dose_lag1_f30 | 0.804 | 0.884 | 0.909 | 0.363 |
+| 40 | dose_lag1_f40 | 3.147 | 0.926 | 3.401 | 0.001 |
+| 40 | dose_lag1_f50 | 1.439 | 0.908 | 1.586 | 0.113 |
+| 40 | outcome_0 | 0.004 | 0.036 | 0.099 | 0.921 |
+| 40 | delta_outcome:dose_lag1_f30 | 0.025 | 0.044 | 0.564 | 0.573 |
+| 40 | delta_outcome:dose_lag1_f40 | 0.001 | 0.044 | 0.018 | 0.985 |
+| 40 | delta_outcome:dose_lag1_f50 | 0.029 | 0.051 | 0.566 | 0.571 |
+| 40 | side.effects:dose_lag1_f30 | -0.035 | 0.157 | -0.221 | 0.825 |
+| 40 | side.effects:dose_lag1_f40 | -0.161 | 0.160 | -1.004 | 0.315 |
+| 40 | side.effects:dose_lag1_f50 | -0.069 | 0.154 | -0.448 | 0.654 |
+| 50 | (Intercept) | -0.008 | 1.161 | -0.007 | 0.994 |
+| 50 | rms::rcs(visit, visit_df)visit | 0.572 | 0.254 | 2.256 | 0.024 |
+| 50 | rms::rcs(visit, visit_df)visit’ | -1.011 | 0.401 | -2.523 | 0.012 |
+| 50 | delta_outcome | -0.050 | 0.025 | -2.035 | 0.042 |
+| 50 | side.effects | -0.456 | 0.073 | -6.282 | 0.000 |
+| 50 | dose_lag1_f30 | 0.047 | 0.882 | 0.053 | 0.957 |
+| 50 | dose_lag1_f40 | 0.418 | 1.028 | 0.406 | 0.684 |
+| 50 | dose_lag1_f50 | 1.344 | 0.836 | 1.608 | 0.108 |
+| 50 | outcome_0 | 0.000 | 0.038 | -0.005 | 0.996 |
+| 50 | delta_outcome:dose_lag1_f30 | 0.053 | 0.047 | 1.131 | 0.258 |
+| 50 | delta_outcome:dose_lag1_f40 | 0.094 | 0.052 | 1.813 | 0.070 |
+| 50 | delta_outcome:dose_lag1_f50 | 0.001 | 0.051 | 0.027 | 0.978 |
+| 50 | side.effects:dose_lag1_f30 | -0.203 | 0.206 | -0.985 | 0.325 |
+| 50 | side.effects:dose_lag1_f40 | -0.210 | 0.213 | -0.986 | 0.324 |
+| 50 | side.effects:dose_lag1_f50 | -0.168 | 0.166 | -1.008 | 0.314 |
+
+<small><em>Multinomial dose-weight denominator model</em></small>
+
+| Dose_level_vs_reference | Term | Estimate | SE | z_value | p_value |
+|:---|:---|---:|---:|---:|---:|
+| 30 | (Intercept) | -0.575 | 0.814 | -0.706 | 0.480 |
+| 30 | rms::rcs(visit, visit_df)visit | -0.039 | 0.198 | -0.197 | 0.844 |
+| 30 | rms::rcs(visit, visit_df)visit’ | -0.020 | 0.315 | -0.064 | 0.949 |
+| 30 | dose_lag1_f30 | 1.429 | 0.325 | 4.398 | 0.000 |
+| 30 | dose_lag1_f40 | 1.356 | 0.406 | 3.339 | 0.001 |
+| 30 | dose_lag1_f50 | 0.247 | 0.434 | 0.569 | 0.569 |
+| 30 | outcome_0 | -0.012 | 0.026 | -0.463 | 0.643 |
+| 40 | (Intercept) | -2.276 | 0.899 | -2.531 | 0.011 |
+| 40 | rms::rcs(visit, visit_df)visit | 0.061 | 0.221 | 0.276 | 0.783 |
+| 40 | rms::rcs(visit, visit_df)visit’ | -0.368 | 0.349 | -1.056 | 0.291 |
+| 40 | dose_lag1_f30 | 1.035 | 0.396 | 2.612 | 0.009 |
+| 40 | dose_lag1_f40 | 2.519 | 0.396 | 6.358 | 0.000 |
+| 40 | dose_lag1_f50 | 1.314 | 0.408 | 3.218 | 0.001 |
+| 40 | outcome_0 | 0.034 | 0.028 | 1.178 | 0.239 |
+| 50 | (Intercept) | -1.212 | 0.858 | -1.412 | 0.158 |
+| 50 | rms::rcs(visit, visit_df)visit | 0.227 | 0.204 | 1.110 | 0.267 |
+| 50 | rms::rcs(visit, visit_df)visit’ | -0.533 | 0.332 | -1.607 | 0.108 |
+| 50 | dose_lag1_f30 | 0.224 | 0.401 | 0.560 | 0.576 |
+| 50 | dose_lag1_f40 | 0.705 | 0.450 | 1.568 | 0.117 |
+| 50 | dose_lag1_f50 | 0.983 | 0.366 | 2.688 | 0.007 |
+| 50 | outcome_0 | -0.004 | 0.028 | -0.160 | 0.873 |
+
+<small><em>Multinomial dose-weight numerator model</em></small>
+
+| n | n_patients | mean_SW_treatment_multinom | sd_SW_treatment_multinom | min_SW_treatment_multinom | p1_SW_treatment_multinom | p50_SW_treatment_multinom | p99_SW_treatment_multinom | max_SW_treatment_multinom | mean_cSW_treatment_multinom | sd_cSW_treatment_multinom | min_cSW_treatment_multinom | p1_cSW_treatment_multinom | p50_cSW_treatment_multinom | p99_cSW_treatment_multinom | max_cSW_treatment_multinom | ESS_cSW_treatment_multinom |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 525 | 163 | 1.027 | 1.128 | 0.257 | 0.306 | 0.808 | 4.485 | 16.025 | 0.981 | 1.097 | 0.077 | 0.113 | 0.729 | 5.461 | 12.422 | 233.633 |
+
+<small><em>Summary of multinomial stabilized treatment
+weights</em></small>
+
+| n | n_patients | mean_SW_total_multinom_trunc | sd_SW_total_multinom_trunc | min_SW_total_multinom_trunc | p1_SW_total_multinom_trunc | p50_SW_total_multinom_trunc | p99_SW_total_multinom_trunc | max_SW_total_multinom_trunc | ESS_SW_total_multinom_trunc |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 514 | 163 | 0.948 | 0.852 | 0.118 | 0.119 | 0.73 | 5.221 | 5.29 | 284.7 |
+
+<small><em>Summary of truncated total weights using multinomial
+IPTW</em></small>
+
+| Term                                   | Estimate | Std.err |  Wald | Pr(\>\|W\|) |
+|:---------------------------------------|---------:|--------:|------:|------------:|
+| (Intercept)                            |  -16.246 |   5.635 | 8.311 |       0.004 |
+| rms::rcs(visit, 3)visit                |   -1.363 |   2.866 | 0.226 |       0.634 |
+| rms::rcs(visit, 3)visit’               |    3.905 |   5.626 | 0.482 |       0.488 |
+| outcome_0                              |    0.577 |   0.199 | 8.431 |       0.004 |
+| dose_lag1_f30                          |    3.682 |   7.615 | 0.234 |       0.629 |
+| dose_lag1_f40                          |   -3.314 |  10.353 | 0.102 |       0.749 |
+| dose_lag1_f50                          |  -12.374 |   8.268 | 2.240 |       0.135 |
+| dose_lag2_f20                          |    0.443 |   1.834 | 0.058 |       0.809 |
+| dose_lag2_f30                          |    0.331 |   2.592 | 0.016 |       0.898 |
+| dose_lag2_f40                          |   -2.019 |   3.046 | 0.439 |       0.508 |
+| dose_lag2_f50                          |    0.355 |   3.044 | 0.014 |       0.907 |
+| dose_lag3_f20                          |   -0.195 |   1.807 | 0.012 |       0.914 |
+| dose_lag3_f30                          |    1.999 |   2.903 | 0.474 |       0.491 |
+| dose_lag3_f40                          |    4.546 |   2.994 | 2.305 |       0.129 |
+| dose_lag3_f50                          |   -0.503 |   2.747 | 0.033 |       0.855 |
+| avg_dose_before_lag3                   |   -0.046 |   0.087 | 0.288 |       0.592 |
+| rms::rcs(visit, 3)visit:outcome_0      |    0.191 |   0.096 | 3.950 |       0.047 |
+| rms::rcs(visit, 3)visit’:outcome_0     |   -0.272 |   0.196 | 1.929 |       0.165 |
+| rms::rcs(visit, 3)visit:dose_lag1_f30  |   -2.086 |   2.902 | 0.517 |       0.472 |
+| rms::rcs(visit, 3)visit’:dose_lag1_f30 |    3.571 |   4.216 | 0.718 |       0.397 |
+| rms::rcs(visit, 3)visit:dose_lag1_f40  |    0.031 |   4.166 | 0.000 |       0.994 |
+| rms::rcs(visit, 3)visit’:dose_lag1_f40 |   -0.031 |   6.688 | 0.000 |       0.996 |
+| rms::rcs(visit, 3)visit:dose_lag1_f50  |    3.380 |   3.240 | 1.089 |       0.297 |
+| rms::rcs(visit, 3)visit’:dose_lag1_f50 |   -4.039 |   4.910 | 0.677 |       0.411 |
+
+<small><em>Weighted MSM using multinomial IPTW</em></small>
+
+### Predicted trajectories using multinomial IPTW
+
+![](README_files/figure-gfm/appendix-multinomial-prediction-plot-1.png)<!-- -->
+
+##### Comparison of ordinal and multinomial IPTW results
+
+| weight_model | contrast | target_visit | estimate | se | lower_95 | upper_95 | p_value |
+|:---|:---|---:|---:|---:|---:|---:|---:|
+| Ordinal IPTW | Always 30 mg vs always 20 mg | 8 | 4.221 | 5.719 | -6.988 | 15.430 | 0.460 |
+| Ordinal IPTW | Always 40 mg vs always 20 mg | 8 | 3.867 | 7.783 | -11.387 | 19.122 | 0.619 |
+| Ordinal IPTW | Always 50 mg vs always 20 mg | 8 | -0.830 | 6.732 | -14.025 | 12.365 | 0.902 |
+| Ordinal IPTW | Always 40 mg vs always 30 mg | 8 | -0.354 | 8.043 | -16.117 | 15.410 | 0.965 |
+| Ordinal IPTW | Always 50 mg vs always 30 mg | 8 | -5.051 | 5.593 | -16.013 | 5.910 | 0.366 |
+| Ordinal IPTW | Always 50 mg vs always 40 mg | 8 | -4.698 | 8.769 | -21.885 | 12.490 | 0.592 |
+| Multinomial IPTW | Always 30 mg vs always 20 mg | 8 | 4.335 | 5.645 | -6.729 | 15.400 | 0.443 |
+| Multinomial IPTW | Always 40 mg vs always 20 mg | 8 | -1.601 | 8.270 | -17.810 | 14.609 | 0.847 |
+| Multinomial IPTW | Always 50 mg vs always 20 mg | 8 | -4.375 | 6.272 | -16.668 | 7.917 | 0.485 |
+| Multinomial IPTW | Always 40 mg vs always 30 mg | 8 | -5.936 | 8.974 | -23.525 | 11.652 | 0.508 |
+| Multinomial IPTW | Always 50 mg vs always 30 mg | 8 | -8.711 | 6.470 | -21.391 | 3.969 | 0.178 |
+| Multinomial IPTW | Always 50 mg vs always 40 mg | 8 | -2.775 | 9.875 | -22.129 | 16.579 | 0.779 |
+
+<small><em>Comparison of week-8 dose-strategy contrasts using ordinal
+versus multinomial treatment weights</em></small>
 
 rmarkdown::render(“README.Rmd”)
