@@ -1,4 +1,4 @@
-# step-by-step per-arm scripts; no row-binding of arm-specific dose-factor tables; fixed visit conversion scalar if_else issue.
+# functions: step-by-step per-arm scripts; no row-binding of arm-specific dose-factor tables; fixed visit conversion scalar if_else issue.
 #######################################################################################################
 ############################ DR_01_functions_stepwise_by_arm.R ########################################
 #######################################################################################################
@@ -264,7 +264,11 @@ simulate_side_effects_if_needed <- function(data, seed = 2025) {
         (dose - dose_range[1]) / (dose_range[2] - dose_range[1]),
         NA_real_
       ),
-      inv_effect_tmp = dplyr::if_else(dose > 0, 1 - dose_scaled_tmp, NA_real_),
+      inv_effect_tmp = dplyr::if_else(
+        dose >= 0,
+        1 - dose_scaled_tmp,
+        NA_real_
+      ),
       side_raw_tmp = inv_effect_tmp + rnorm(dplyr::n(), mean = 0, sd = 0.35),
       side_scaled_tmp = pmin(pmax(side_raw_tmp, 0), 1),
       side.effects = dplyr::if_else(visit > 0, as.numeric(round(10 * side_scaled_tmp)), NA_real_)
@@ -336,100 +340,558 @@ prepare_dose_response_arm_data <- function(
     visit_max = 9,
     max_followup_visit = visit_max,
     dose_levels = NULL,
-    dose_history_levels = NULL
-) {
-  dat <- data |>
-    dplyr::filter(visit >= visit_min, visit <= visit_max)
-
-  if (is.null(dose_levels)) {
-    dose_levels <- sort(unique(dat$dose[dat$visit > 0 & dat$dose > 0 & !is.na(dat$dose)]))
-  }
-  if (is.null(dose_history_levels)) {
-    dose_history_levels <- sort(unique(c(0, dose_levels)))
-  }
-
-  dat |>
-    dplyr::mutate(
-      pid = as.factor(pid),
-      studyid = as.factor(studyid),
-      sex = as.factor(sex),
-      treat = as.factor(treat),
-      age = as.numeric(age),
-      visit = as.numeric(visit),
-      dose = as.numeric(dose),
-      outcome = as.numeric(outcome),
-      side.effects = as.numeric(side.effects),
-      side.effects_model = dplyr::case_when(
-        visit == 0 ~ 0,
-        TRUE ~ side.effects
-      ),
-      side.effects = dplyr::case_when(
-        visit == 0 ~ 0,
-        TRUE ~ side.effects
-      ),
-      dose_f = make_numeric_dose_factor(
-        dose,
-        include_zero = FALSE,
-        ordered = TRUE
-      ),
-      dose_current_f = make_numeric_dose_factor(
-        dose,
-        include_zero = FALSE,
-        ordered = FALSE
-      )
-    ) |>
-    dplyr::arrange(pid, visit) |>
-    dplyr::group_by(pid) |>
-    dplyr::mutate(
-      baseline_visit = min(visit, na.rm = TRUE),
-      is_baseline = visit == baseline_visit,
-      outcome_0 = outcome[which.min(visit)],
-      delta_outcome = outcome_0 - outcome,
-      dose_lag1 = dplyr::coalesce(dplyr::lag(dose, 1), 0),
-      dose_lag2 = dplyr::coalesce(dplyr::lag(dose, 2), 0),
-      dose_lag3 = dplyr::coalesce(dplyr::lag(dose, 3), 0),
-      delta_outcome_locf = locf_simple(delta_outcome),
-      side.effects_model_locf = locf_simple(side.effects_model),
-      delta_outcome_lag1 = dplyr::coalesce(dplyr::lag(delta_outcome_locf), 0),
-      side.effects_lag1 = dplyr::coalesce(dplyr::lag(side.effects_model_locf), 0),
-      next_visit = dplyr::lead(visit),
-      R_next = dplyr::case_when(
-        visit >= max_followup_visit ~ NA_integer_,
-        !is.na(next_visit) ~ 1L,
-        is.na(next_visit) ~ 0L
-      ),
-      avg_dose_before_lag3 = vapply(seq_along(dose), function(j) {
-        if (j <= 4) return(0)
-        early_doses <- dose[seq_len(j - 4)]
-        if (all(is.na(early_doses))) 0 else mean(early_doses, na.rm = TRUE)
-      }, numeric(1))
-    ) |>
-    dplyr::ungroup() |>
-    add_dose_history_factors(dose_history_levels = dose_history_levels) |>
-    dplyr::mutate(
-      use_treatment_weight = !is_baseline &
-        !is.na(dose_f) &
-        !is.na(delta_outcome) &
-        !is.na(side.effects) &
-        !is.na(outcome_0),
-      use_censoring_weight = !is_baseline &
-        !is.na(R_next) &
-        !is.na(dose_current_f) &
-        !is.na(delta_outcome) &
-        !is.na(side.effects) &
-        !is.na(outcome_0) &
-        !is.na(age) &
-        !is.na(sex),
-      use_msm = !is_baseline &
-        !is.na(delta_outcome) &
-        !is.na(outcome_0) &
-        !is.na(age) &
-        !is.na(sex) &
-        !is.na(dose_lag1_f) &
-        !is.na(dose_lag2_f) &
-        !is.na(dose_lag3_f) &
-        !is.na(avg_dose_before_lag3)
+    dose_history_levels = NULL,
+    include_zero_as_dose = FALSE,
+    censoring_scenario = c(
+      "zero_as_dose",
+      "zero_as_discontinuation"
     )
+) {
+  
+  censoring_scenario <- match.arg(censoring_scenario)
+  
+  
+  ################################################################################
+  ############################ REQUIRED VARIABLES ###############################
+  ################################################################################
+  
+  if (!"no_later_observation_before_horizon" %in% names(data)) {
+    stop(
+      "Missing variable: no_later_observation_before_horizon"
+    )
+  }
+  
+  if (
+    censoring_scenario == "zero_as_discontinuation" &&
+    !"censor_for_discontinuation" %in% names(data)
+  ) {
+    stop(
+      "Missing variable: censor_for_discontinuation"
+    )
+  }
+  
+  
+  ################################################################################
+  ######################## RESTRICT ANALYSIS FOLLOW-UP ###########################
+  ################################################################################
+  
+  dat <- data |>
+    dplyr::filter(
+      visit >= visit_min,
+      visit <= visit_max
+    )
+  
+  
+  ################################################################################
+  ############################ CENSORING DEFINITION ##############################
+  ################################################################################
+  
+  if (censoring_scenario == "zero_as_dose") {
+    
+    # 0 mg is a genuine treatment state.
+    # Censoring is only terminal loss of observed follow-up.
+    dat <- dat |>
+      dplyr::mutate(
+        censor_event =
+          dplyr::coalesce(
+            no_later_observation_before_horizon,
+            FALSE
+          )
+      )
+    
+  } else {
+    
+    dat <- dat |>
+      dplyr::mutate(
+        censor_event =
+          dplyr::coalesce(
+            no_later_observation_before_horizon,
+            FALSE
+          ) |
+          dplyr::coalesce(
+            censor_for_discontinuation,
+            FALSE
+          )
+      )
+  }
+  
+  
+  ################################################################################
+  ############################### DOSE LEVELS ####################################
+  ################################################################################
+  
+  if (is.null(dose_levels)) {
+    
+    if (include_zero_as_dose) {
+      
+      dose_levels <- sort(
+        unique(
+          dat$dose[
+            dat$visit > 0 &
+              !is.na(dat$dose)
+          ]
+        )
+      )
+      
+    } else {
+      
+      dose_levels <- sort(
+        unique(
+          dat$dose[
+            dat$visit > 0 &
+              dat$dose > 0 &
+              !is.na(dat$dose)
+          ]
+        )
+      )
+    }
+  }
+  
+  
+  if (is.null(dose_history_levels)) {
+    
+    dose_history_levels <- sort(
+      unique(
+        c(
+          0,
+          dose_levels
+        )
+      )
+    )
+  }
+  
+  
+  ################################################################################
+  ######################## BASIC LONGITUDINAL VARIABLES ##########################
+  ################################################################################
+  
+  dat <- dat |>
+    dplyr::mutate(
+      
+      pid =
+        as.factor(pid),
+      
+      studyid =
+        as.factor(studyid),
+      
+      sex =
+        as.factor(sex),
+      
+      treat =
+        as.factor(treat),
+      
+      age =
+        as.numeric(age),
+      
+      visit =
+        as.numeric(visit),
+      
+      dose =
+        as.numeric(dose),
+      
+      outcome =
+        as.numeric(outcome),
+      
+      side.effects =
+        as.numeric(side.effects),
+      
+      
+      ##########################################################################
+      # BASELINE SIDE EFFECTS
+      ##########################################################################
+      
+      side.effects_model =
+        dplyr::case_when(
+          visit == 0 ~ 0,
+          TRUE ~ side.effects
+        ),
+      
+      side.effects =
+        dplyr::case_when(
+          visit == 0 ~ 0,
+          TRUE ~ side.effects
+        ),
+      
+      
+      ##########################################################################
+      # CURRENT TREATMENT
+      ##########################################################################
+      
+      dose_f =
+        make_numeric_dose_factor(
+          dose,
+          include_zero = include_zero_as_dose,
+          ordered = TRUE
+        ),
+      
+      dose_current_f =
+        make_numeric_dose_factor(
+          dose,
+          include_zero = include_zero_as_dose,
+          ordered = FALSE
+        ),
+      
+      # Needed for IPCW; 0 mg is allowed.
+      dose_censor_f =
+        make_numeric_dose_factor(
+          dose,
+          include_zero = TRUE,
+          ordered = FALSE
+        )
+    ) |>
+    
+    dplyr::arrange(
+      pid,
+      visit
+    ) |>
+    
+    dplyr::group_by(pid) |>
+    
+    dplyr::mutate(
+      
+      
+      ################################################################################
+      ############################ BASELINE VARIABLES ###############################
+      ################################################################################
+      
+      baseline_visit =
+        min(
+          visit,
+          na.rm = TRUE
+        ),
+      
+      is_baseline =
+        visit == baseline_visit,
+      
+      outcome_0 =
+        outcome[
+          which.min(visit)
+        ],
+      
+      # Positive values = HAMD improvement.
+      delta_outcome =
+        outcome_0 - outcome,
+      
+      
+      ################################################################################
+      ############################ DOSE HISTORY ######################################
+      ################################################################################
+      
+      # Patients were untreated before study entry.
+      #
+      # Therefore:
+      #
+      # baseline:
+      #   lag1 = 0
+      #   lag2 = 0
+      #   lag3 = 0
+      #
+      # first post-baseline observation:
+      #   lag1 = baseline dose (20 mg)
+      #   lag2 = 0
+      #   lag3 = 0
+      #
+      # IMPORTANT:
+      # only STRUCTURAL pre-baseline history is assigned 0.
+      # A genuinely missing dose later remains NA.
+      
+      dose_lag1 =
+        dplyr::case_when(
+          dplyr::row_number() == 1 ~ 0,
+          TRUE ~ dplyr::lag(dose, 1)
+        ),
+      
+      dose_lag2 =
+        dplyr::case_when(
+          dplyr::row_number() <= 2 ~ 0,
+          TRUE ~ dplyr::lag(dose, 2)
+        ),
+      
+      dose_lag3 =
+        dplyr::case_when(
+          dplyr::row_number() <= 3 ~ 0,
+          TRUE ~ dplyr::lag(dose, 3)
+        ),
+      
+      
+      ################################################################################
+      ######################## TIME-VARYING COVARIATES ##############################
+      ################################################################################
+      
+      delta_outcome_locf =
+        locf_simple(
+          delta_outcome
+        ),
+      
+      side.effects_model_locf =
+        locf_simple(
+          side.effects_model
+        ),
+      
+      delta_outcome_lag1 =
+        dplyr::coalesce(
+          dplyr::lag(
+            delta_outcome_locf
+          ),
+          0
+        ),
+      
+      side.effects_lag1 =
+        dplyr::coalesce(
+          dplyr::lag(
+            side.effects_model_locf
+          ),
+          0
+        ),
+      
+      
+      ################################################################################
+      ############################ CENSORING OUTCOME #################################
+      ################################################################################
+      
+      # R_next = 1:
+      # remains uncensored after the current observation
+      #
+      # R_next = 0:
+      # censoring occurs after the current observation
+      #
+      # R_next = NA:
+      # analysis horizon reached
+      
+      R_next =
+        dplyr::case_when(
+          
+          visit >= max_followup_visit ~
+            NA_integer_,
+          
+          censor_event ~
+            0L,
+          
+          TRUE ~
+            1L
+        ),
+      
+      
+      ################################################################################
+      ######################## OLDER DOSE HISTORY ####################################
+      ################################################################################
+      
+      # Average of observed doses occurring earlier than lag 3.
+      #
+      # Before enough observed treatment history exists, the relevant
+      # treatment history is pre-study untreated history, i.e. 0 mg.
+      
+      avg_dose_before_lag3 =
+        vapply(
+          seq_along(dose),
+          function(j) {
+            
+            if (j <= 4) {
+              return(0)
+            }
+            
+            early_doses <-
+              dose[
+                seq_len(
+                  j - 4
+                )
+              ]
+            
+            if (
+              all(
+                is.na(
+                  early_doses
+                )
+              )
+            ) {
+              
+              return(0)
+              
+            } else {
+              
+              return(
+                mean(
+                  early_doses,
+                  na.rm = TRUE
+                )
+              )
+            }
+          },
+          numeric(1)
+        )
+    ) |>
+    
+    dplyr::ungroup()
+  
+  
+  ################################################################################
+  ######################## CREATE DOSE-HISTORY FACTORS ###########################
+  ################################################################################
+  
+  # Explicitly use the same possible history levels:
+  # 0, 20, 30, 40, 50.
+  #
+  # There is NO "No history" category.
+  # 0 means genuinely untreated.
+  
+  dat <- dat |>
+    dplyr::mutate(
+      
+      dose_lag1_f =
+        factor(
+          as.character(dose_lag1),
+          levels =
+            as.character(
+              dose_history_levels
+            ),
+          ordered = FALSE
+        ),
+      
+      dose_lag2_f =
+        factor(
+          as.character(dose_lag2),
+          levels =
+            as.character(
+              dose_history_levels
+            ),
+          ordered = FALSE
+        ),
+      
+      dose_lag3_f =
+        factor(
+          as.character(dose_lag3),
+          levels =
+            as.character(
+              dose_history_levels
+            ),
+          ordered = FALSE
+        ),
+      
+      avg_dose_before_lag3_f =
+        categorise_to_dose_level(
+          avg_dose_before_lag3,
+          levels = dose_history_levels
+        )
+    )
+  
+  
+  ################################################################################
+  ############################ ANALYSIS FLAGS ####################################
+  ################################################################################
+  
+  dat <- dat |>
+    dplyr::mutate(
+      
+      
+      ##########################################################################
+      # IPTW TREATMENT MODEL
+      ##########################################################################
+      
+      use_treatment_weight =
+        
+        !is_baseline &
+        
+        visit <
+        max_followup_visit &
+        
+        !is.na(
+          dose_f
+        ) &
+        
+        !is.na(
+          delta_outcome_locf
+        ) &
+        
+        !is.na(
+          side.effects_model_locf
+        ) &
+        
+        !is.na(
+          outcome_0
+        ) &
+        
+        !is.na(
+          dose_lag1_f
+        ),
+      
+      
+      ##########################################################################
+      # IPCW CENSORING MODEL
+      ##########################################################################
+      
+      use_censoring_weight =
+        
+        !is.na(
+          R_next
+        ) &
+        
+        !is.na(
+          dose_censor_f
+        ) &
+        
+        !is.na(
+          delta_outcome_locf
+        ) &
+        
+        !is.na(
+          side.effects_model_locf
+        ) &
+        
+        !is.na(
+          outcome_0
+        ) &
+        
+        !is.na(
+          age
+        ) &
+        
+        !is.na(
+          sex
+        ),
+      
+      
+      ##########################################################################
+      # MSM
+      #
+      # Age and sex are NOT required here because they are not covariates
+      # in the final MSM.
+      ##########################################################################
+      
+      use_msm =
+        
+        !is_baseline &
+        
+        !is.na(
+          delta_outcome
+        ) &
+        
+        !is.na(
+          outcome_0
+        ) &
+        
+        !is.na(
+          dose_lag1_f
+        ) &
+        
+        !is.na(
+          dose_lag2_f
+        ) &
+        
+        !is.na(
+          dose_lag3_f
+        ) &
+        
+        !is.na(
+          avg_dose_before_lag3
+        )
+    )
+  
+  
+  ################################################################################
+  ############################ RETURN DATA #######################################
+  ################################################################################
+  
+  dat
 }
 
 summarise_dose_response_data <- function(data) {
@@ -454,22 +916,24 @@ fit_iptw_denominator_model <- function(data, visit_df = 3) {
   model_dat <- data |>
     dplyr::filter(use_treatment_weight) |>
     dplyr::mutate(
+      studyid = droplevels(studyid),
       dose_f = droplevels(dose_f),
       dose_lag1_f = droplevels(dose_lag1_f)
-    )
+    )   
 
   if (nlevels(model_dat$dose_f) < 2) stop("IPTW denominator: fewer than 2 dose levels.")
 
   terms <- c(
     paste0("rms::rcs(visit, ", visit_df, ")"),
-    "delta_outcome",
-    "side.effects",
+    "studyid",
+    "delta_outcome_locf",
+    "side.effects_model_locf",
     "dose_lag1_f",
-    "dose_lag1_f:delta_outcome",
-    "dose_lag1_f:side.effects",
+    "dose_lag1_f:delta_outcome_locf",
+    "dose_lag1_f:side.effects_model_locf",
     "outcome_0"
   )
-
+  
   MASS::polr(
     make_formula_from_terms("dose_f", terms),
     data = model_dat,
@@ -482,6 +946,7 @@ fit_iptw_numerator_model <- function(data, visit_df = 3) {
   model_dat <- data |>
     dplyr::filter(use_treatment_weight) |>
     dplyr::mutate(
+      studyid = droplevels(studyid),
       dose_f = droplevels(dose_f),
       dose_lag1_f = droplevels(dose_lag1_f)
     )
@@ -490,6 +955,7 @@ fit_iptw_numerator_model <- function(data, visit_df = 3) {
 
   terms <- c(
     paste0("rms::rcs(visit, ", visit_df, ")"),
+    "studyid",
     "dose_lag1_f",
     "outcome_0"
   )
@@ -546,6 +1012,7 @@ add_iptw_treatment_weights <- function(
     numerator_model,
     min_prob = 1e-6
 ) {
+  
   data <- data |>
     dplyr::select(
       -dplyr::any_of(c(
@@ -569,10 +1036,15 @@ add_iptw_treatment_weights <- function(
     )
   
   if (any(is.na(weight_dat$dose_f))) {
+    
     missing_doses <- data |>
       dplyr::filter(use_treatment_weight) |>
-      dplyr::mutate(dose_chr = as.character(dose_f)) |>
-      dplyr::filter(!(dose_chr %in% dose_levels_model)) |>
+      dplyr::mutate(
+        dose_chr = as.character(dose_f)
+      ) |>
+      dplyr::filter(
+        !(dose_chr %in% dose_levels_model)
+      ) |>
       dplyr::distinct(dose_chr) |>
       dplyr::pull(dose_chr)
     
@@ -582,6 +1054,7 @@ add_iptw_treatment_weights <- function(
     )
   }
   
+  # Probability of the dose assigned at the current visit.
   weight_dat$p_dose_denominator <- get_observed_dose_prob(
     model = denominator_model,
     data = weight_dat,
@@ -596,18 +1069,21 @@ add_iptw_treatment_weights <- function(
   
   weight_dat <- weight_dat |>
     dplyr::mutate(
-      p_dose_denominator = pmax(p_dose_denominator, min_prob),
-      p_dose_numerator = pmax(p_dose_numerator, min_prob),
-      SW_treatment = p_dose_numerator / p_dose_denominator
-    ) |>
-    dplyr::arrange(pid, visit) |>
-    dplyr::group_by(pid) |>
-    dplyr::mutate(
-      cSW_treatment = cumprod(SW_treatment)
-    ) |>
-    dplyr::ungroup()
+      p_dose_denominator = pmax(
+        p_dose_denominator,
+        min_prob
+      ),
+      p_dose_numerator = pmax(
+        p_dose_numerator,
+        min_prob
+      ),
+      SW_treatment =
+        p_dose_numerator /
+        p_dose_denominator
+    )
   
-  data |>
+  # Join the visit-specific treatment weights back to all rows.
+  data <- data |>
     dplyr::left_join(
       weight_dat |>
         dplyr::select(
@@ -615,50 +1091,98 @@ add_iptw_treatment_weights <- function(
           visit,
           p_dose_denominator,
           p_dose_numerator,
-          SW_treatment,
-          cSW_treatment
+          SW_treatment
         ),
       by = c("pid", "visit")
     )
+  
+  # Dose assigned at visit t affects outcomes after visit t.
+  # Therefore the outcome at the current visit receives treatment
+  # weights accumulated through the preceding visits.
+  data |>
+    dplyr::arrange(pid, visit) |>
+    dplyr::group_by(pid) |>
+    dplyr::mutate(
+      cSW_treatment = cumprod(
+        dplyr::lag(
+          dplyr::coalesce(
+            SW_treatment,
+            1
+          ),
+          default = 1
+        )
+      )
+    ) |>
+    dplyr::ungroup()
 }
 
 # ---------------------------- IPCW models ----------------------------
-
-fit_ipcw_denominator_model <- function(data) {
+fit_ipcw_denominator_model <- function(
+    data,
+    visit_df = 3
+) {
+  
   model_dat <- data |>
     dplyr::filter(use_censoring_weight) |>
     dplyr::mutate(
+      studyid = droplevels(studyid),
       sex = droplevels(sex),
-      dose_current_f = droplevels(dose_current_f)
+      dose_censor_f = droplevels(dose_censor_f)
     )
-
-  if (length(unique(model_dat$R_next)) < 2) stop("IPCW denominator: R_next has fewer than 2 values.")
-
+  
+  if (length(unique(model_dat$R_next)) < 2) {
+    stop(
+      "IPCW denominator: R_next has fewer than 2 values."
+    )
+  }
+  
   glm(
-    R_next ~ visit + dose_current_f + delta_outcome + delta_outcome_lag1 +
-      side.effects + side.effects_lag1 + outcome_0 + age + sex,
+    stats::as.formula(
+      paste0(
+        "R_next ~ studyid + ",
+        "rms::rcs(visit, ", visit_df, ") + ",
+        "dose_censor_f + ",
+        "delta_outcome_locf + delta_outcome_lag1 + ",
+        "side.effects_model_locf + side.effects_lag1 + ",
+        "outcome_0 + age + sex"
+      )
+    ),
     data = model_dat,
     family = binomial()
   )
 }
 
-fit_ipcw_numerator_model <- function(data) {
+fit_ipcw_numerator_model <- function(
+    data,
+    visit_df = 3
+) {
+  
   model_dat <- data |>
     dplyr::filter(use_censoring_weight) |>
     dplyr::mutate(
+      studyid = droplevels(studyid),
       sex = droplevels(sex),
-      dose_current_f = droplevels(dose_current_f)
+      dose_censor_f = droplevels(dose_censor_f)
     )
-
-  if (length(unique(model_dat$R_next)) < 2) stop("IPCW numerator: R_next has fewer than 2 values.")
-
+  
+  if (length(unique(model_dat$R_next)) < 2) {
+    stop(
+      "IPCW numerator: R_next has fewer than 2 values."
+    )
+  }
+  
   glm(
-    R_next ~ visit + dose_current_f + outcome_0 + age + sex,
+    stats::as.formula(
+      paste0(
+        "R_next ~ studyid + ",
+        "rms::rcs(visit, ", visit_df, ") + ",
+        "dose_censor_f + outcome_0 + age + sex"
+      )
+    ),
     data = model_dat,
     family = binomial()
   )
 }
-
 make_glm_coef_table <- function(model) {
   coef_tab <- coef(summary(model))
   cbind(
@@ -667,46 +1191,94 @@ make_glm_coef_table <- function(model) {
   )
 }
 
-add_ipcw_censoring_weights <- function(data, denominator_model, numerator_model, min_prob = 1e-6) {
+add_ipcw_censoring_weights <- function(
+    data,
+    denominator_model,
+    numerator_model,
+    min_prob = 1e-6
+) {
+  
   data <- data |>
-    dplyr::select(-dplyr::any_of(c(
-      "p_censor_denominator_raw", "p_censor_numerator_raw",
-      "p_censor_denominator", "p_censor_numerator",
-      "SW_censoring", "cSW_censoring"
-    )))
-
+    dplyr::select(
+      -dplyr::any_of(c(
+        "p_censor_denominator_raw",
+        "p_censor_numerator_raw",
+        "p_censor_denominator",
+        "p_censor_numerator",
+        "SW_censoring",
+        "cSW_censoring"
+      ))
+    )
+  
+  # Rows used to model remaining uncensored after the current visit.
   weight_dat <- data |>
     dplyr::filter(use_censoring_weight) |>
     dplyr::mutate(
       sex = droplevels(sex),
-      dose_current_f = droplevels(dose_current_f)
+      dose_censor_f = droplevels(dose_censor_f)
     )
-
-  weight_dat$p_censor_denominator_raw <- predict(denominator_model, newdata = weight_dat, type = "response")
-  weight_dat$p_censor_numerator_raw <- predict(numerator_model, newdata = weight_dat, type = "response")
-
+  
+  # Predicted probability of remaining uncensored after this visit.
+  weight_dat$p_censor_denominator_raw <- predict(
+    denominator_model,
+    newdata = weight_dat,
+    type = "response"
+  )
+  
+  weight_dat$p_censor_numerator_raw <- predict(
+    numerator_model,
+    newdata = weight_dat,
+    type = "response"
+  )
+  
   weight_dat <- weight_dat |>
     dplyr::mutate(
-      p_censor_denominator = pmax(p_censor_denominator_raw, min_prob),
-      p_censor_numerator = pmax(p_censor_numerator_raw, min_prob),
-      SW_censoring = p_censor_numerator / p_censor_denominator
-    ) |>
-    dplyr::arrange(pid, visit) |>
-    dplyr::group_by(pid) |>
-    dplyr::mutate(cSW_censoring = cumprod(SW_censoring)) |>
-    dplyr::ungroup()
-
-  data |>
+      p_censor_denominator = pmax(
+        p_censor_denominator_raw,
+        min_prob
+      ),
+      p_censor_numerator = pmax(
+        p_censor_numerator_raw,
+        min_prob
+      ),
+      SW_censoring =
+        p_censor_numerator /
+        p_censor_denominator
+    )
+  
+  # Join the interval-specific censoring weights back to all observed rows.
+  data <- data |>
     dplyr::left_join(
       weight_dat |>
         dplyr::select(
-          pid, visit,
-          p_censor_denominator_raw, p_censor_numerator_raw,
-          p_censor_denominator, p_censor_numerator,
-          SW_censoring, cSW_censoring
+          pid,
+          visit,
+          p_censor_denominator_raw,
+          p_censor_numerator_raw,
+          p_censor_denominator,
+          p_censor_numerator,
+          SW_censoring
         ),
       by = c("pid", "visit")
     )
+  
+  # The censoring decision after visit t affects later outcomes,
+  # not the outcome already observed at visit t.
+  #
+  # Therefore each outcome receives the cumulative censoring weight
+  # from the preceding intervals.
+  data |>
+    dplyr::arrange(pid, visit) |>
+    dplyr::group_by(pid) |>
+    dplyr::mutate(
+      cSW_censoring = cumprod(
+        dplyr::lag(
+          dplyr::coalesce(SW_censoring, 1),
+          default = 1
+        )
+      )
+    ) |>
+    dplyr::ungroup()
 }
 
 add_no_censoring_weights <- function(data) {
@@ -849,61 +1421,116 @@ fit_weighted_msm <- function(
     corstr = "independence",
     include_dose_time_interaction = TRUE
 ) {
+  
   needed_vars <- c(
-    "pid", "visit", "delta_outcome", "outcome_0",
-    "dose_lag1_f", "dose_lag2_f", "dose_lag3_f",
-    "avg_dose_before_lag3", "use_msm", weight_var
+    "pid",
+    "studyid",
+    "visit",
+    "delta_outcome",
+    "outcome_0",
+    "dose_lag1_f",
+    "dose_lag2_f",
+    "dose_lag3_f",
+    "avg_dose_before_lag3",
+    "use_msm",
+    weight_var
   )
-  missing_vars <- setdiff(needed_vars, names(data))
-  if (length(missing_vars) > 0) stop("Missing variables: ", paste(missing_vars, collapse = ", "))
-
+  
+  missing_vars <- setdiff(
+    needed_vars,
+    names(data)
+  )
+  
+  if (length(missing_vars) > 0) {
+    stop(
+      "Missing variables: ",
+      paste(
+        missing_vars,
+        collapse = ", "
+      )
+    )
+  }
+  
   model_dat <- data |>
     dplyr::filter(
       use_msm,
       !is.na(.data[[weight_var]]),
       .data[[weight_var]] > 0,
-      !is.na(delta_outcome), !is.na(outcome_0), !is.na(visit),
-      !is.na(dose_lag1_f), !is.na(dose_lag2_f), !is.na(dose_lag3_f),
+      !is.na(delta_outcome),
+      !is.na(outcome_0),
+      !is.na(visit),
+      !is.na(studyid),
+      !is.na(dose_lag1_f),
+      !is.na(dose_lag2_f),
+      !is.na(dose_lag3_f),
       !is.na(avg_dose_before_lag3)
     ) |>
     dplyr::mutate(
       final_weight = .data[[weight_var]],
+      studyid = droplevels(studyid),
       dose_lag1_f = droplevels(dose_lag1_f),
       dose_lag2_f = droplevels(dose_lag2_f),
       dose_lag3_f = droplevels(dose_lag3_f)
     ) |>
-    dplyr::arrange(pid, visit)
-
-  if (include_dose_time_interaction) {
-    rhs <- paste0(
-      "rms::rcs(visit, ", visit_df, ") * (outcome_0 + dose_lag1_f) + ",
-      "dose_lag2_f + dose_lag3_f + avg_dose_before_lag3"
+    dplyr::arrange(
+      pid,
+      visit
     )
+  
+  if (include_dose_time_interaction) {
+    
+    rhs <- paste0(
+      "rms::rcs(visit, ", visit_df, ") * ",
+      "(outcome_0 + dose_lag1_f) + ",
+      "dose_lag2_f + dose_lag3_f + ",
+      "avg_dose_before_lag3 + ",
+      "studyid"
+    )
+    
   } else {
+    
     rhs <- paste0(
       "rms::rcs(visit, ", visit_df, ") * outcome_0 + ",
-      "dose_lag1_f + dose_lag2_f + dose_lag3_f + avg_dose_before_lag3"
+      "dose_lag1_f + dose_lag2_f + dose_lag3_f + ",
+      "avg_dose_before_lag3 + ",
+      "studyid"
     )
   }
-
-  msm_formula <- stats::as.formula(paste("delta_outcome ~", rhs))
-
+  
+  msm_formula <- stats::as.formula(
+    paste(
+      "delta_outcome ~",
+      rhs
+    )
+  )
+  
   fit <- geepack::geeglm(
     msm_formula,
     id = pid,
     waves = visit,
     data = model_dat,
     weights = final_weight,
-    family = gaussian(link = "identity"),
+    family = gaussian(
+      link = "identity"
+    ),
     corstr = corstr,
     std.err = "san.se"
   )
-
-  attr(fit, "model_data") <- model_dat
-  attr(fit, "dose_history_levels") <- levels(model_dat$dose_lag1_f)
+  
+  attr(
+    fit,
+    "model_data"
+  ) <- model_dat
+  
+  attr(
+    fit,
+    "dose_history_levels"
+  ) <- levels(
+    model_dat$dose_lag1_f
+  )
+  
   fit
 }
-
 make_gee_coef_table <- function(model) {
   coef_tab <- as.data.frame(coef(summary(model)))
   data.frame(Term = rownames(coef_tab), coef_tab, row.names = NULL, check.names = FALSE)
@@ -1277,197 +1904,6 @@ make_gee_and_placebo_mean_table <- function(
     ) |>
     dplyr::select(-source_order)
 }
-# ---------------------------- multinomial sensitivity ----------------------------
-
-make_multinom_dose_factor <- function(dose_f, ref_dose = NULL) {
-  
-  dose_num <- as.numeric(as.character(dose_f))
-  dose_levels <- sort(unique(dose_num[!is.na(dose_num)]))
-  
-  out <- factor(
-    as.character(dose_num),
-    levels = as.character(dose_levels)
-  )
-  
-  if (!is.null(ref_dose) && as.character(ref_dose) %in% levels(out)) {
-    out <- stats::relevel(out, ref = as.character(ref_dose))
-  }
-  
-  out
-}
-
-fit_iptw_multinom_denominator_model <- function(data, visit_df = 3, ref_dose = NULL) {
-  model_dat <- data |>
-    dplyr::filter(use_treatment_weight) |>
-    dplyr::mutate(
-      dose_multinom_f = make_multinom_dose_factor(dose_f, ref_dose = ref_dose),
-      dose_lag1_f = droplevels(dose_lag1_f)
-    )
-
-  if (nlevels(model_dat$dose_multinom_f) < 2) stop("Multinomial denominator: fewer than 2 dose levels.")
-
-  nnet::multinom(
-    dose_multinom_f ~ rms::rcs(visit, visit_df) + delta_outcome + side.effects +
-      dose_lag1_f + dose_lag1_f:delta_outcome + dose_lag1_f:side.effects + outcome_0,
-    data = model_dat,
-    trace = FALSE,
-    maxit = 1000,
-    MaxNWts = 10000,
-    Hess = TRUE
-  )
-}
-
-fit_iptw_multinom_numerator_model <- function(data, visit_df = 3, ref_dose = NULL) {
-  model_dat <- data |>
-    dplyr::filter(use_treatment_weight) |>
-    dplyr::mutate(
-      dose_multinom_f = make_multinom_dose_factor(dose_f, ref_dose = ref_dose),
-      dose_lag1_f = droplevels(dose_lag1_f)
-    )
-
-  if (nlevels(model_dat$dose_multinom_f) < 2) stop("Multinomial numerator: fewer than 2 dose levels.")
-
-  nnet::multinom(
-    dose_multinom_f ~ rms::rcs(visit, visit_df) + dose_lag1_f + outcome_0,
-    data = model_dat,
-    trace = FALSE,
-    maxit = 1000,
-    MaxNWts = 10000,
-    Hess = TRUE
-  )
-}
-
-get_observed_dose_prob_multinom <- function(model, data, outcome_var = "dose_multinom_f") {
-  prob_mat <- predict(model, newdata = data, type = "probs")
-  if (is.null(dim(prob_mat))) {
-    lev <- model$lev
-    prob_mat <- cbind(1 - prob_mat, prob_mat)
-    colnames(prob_mat) <- lev
-  }
-  observed_dose <- as.character(data[[outcome_var]])
-  prob_mat[cbind(seq_len(nrow(prob_mat)), match(observed_dose, colnames(prob_mat)))]
-}
-
-add_iptw_treatment_weights_multinom <- function(data, denominator_model, numerator_model, min_prob = 1e-6) {
-  data <- data |>
-    dplyr::select(-dplyr::any_of(c(
-      "p_dose_denominator_multinom", "p_dose_numerator_multinom",
-      "SW_treatment_multinom", "cSW_treatment_multinom"
-    )))
-
-  weight_dat <- data |>
-    dplyr::filter(use_treatment_weight) |>
-    dplyr::mutate(
-      dose_multinom_f = factor(as.character(dose_f), levels = denominator_model$lev),
-      dose_lag1_f = droplevels(dose_lag1_f)
-    )
-
-  weight_dat$p_dose_denominator_multinom <- get_observed_dose_prob_multinom(denominator_model, weight_dat)
-  weight_dat$p_dose_numerator_multinom <- get_observed_dose_prob_multinom(numerator_model, weight_dat)
-
-  weight_dat <- weight_dat |>
-    dplyr::mutate(
-      p_dose_denominator_multinom = pmax(p_dose_denominator_multinom, min_prob),
-      p_dose_numerator_multinom = pmax(p_dose_numerator_multinom, min_prob),
-      SW_treatment_multinom = p_dose_numerator_multinom / p_dose_denominator_multinom
-    ) |>
-    dplyr::arrange(pid, visit) |>
-    dplyr::group_by(pid) |>
-    dplyr::mutate(cSW_treatment_multinom = cumprod(SW_treatment_multinom)) |>
-    dplyr::ungroup()
-
-  data |>
-    dplyr::left_join(
-      weight_dat |>
-        dplyr::select(pid, visit, p_dose_denominator_multinom, p_dose_numerator_multinom, SW_treatment_multinom, cSW_treatment_multinom),
-      by = c("pid", "visit")
-    )
-}
-
-add_total_weights_multinom <- function(data) {
-  data |>
-    dplyr::mutate(
-      SW_total_multinom = dplyr::case_when(
-        use_msm & !is.na(cSW_treatment_multinom) & !is.na(cSW_censoring) ~ cSW_treatment_multinom * cSW_censoring,
-        TRUE ~ NA_real_
-      )
-    )
-}
-
-truncate_total_weights_multinom <- function(data, lower = 0.01, upper = 0.99) {
-  cutoffs <- quantile(data$SW_total_multinom, probs = c(lower, upper), na.rm = TRUE)
-  data |>
-    dplyr::mutate(
-      SW_total_multinom_trunc = dplyr::case_when(
-        is.na(SW_total_multinom) ~ NA_real_,
-        SW_total_multinom < cutoffs[[1]] ~ as.numeric(cutoffs[[1]]),
-        SW_total_multinom > cutoffs[[2]] ~ as.numeric(cutoffs[[2]]),
-        TRUE ~ SW_total_multinom
-      )
-    )
-}
-
-summarise_iptw_multinom_treatment_weights <- function(data) {
-  data |>
-    dplyr::filter(use_treatment_weight, !is.na(cSW_treatment_multinom)) |>
-    dplyr::summarise(
-      n = dplyr::n(),
-      n_patients = dplyr::n_distinct(pid),
-      mean_SW_treatment_multinom = mean(SW_treatment_multinom),
-      sd_SW_treatment_multinom = sd(SW_treatment_multinom),
-      min_SW_treatment_multinom = min(SW_treatment_multinom),
-      p1_SW_treatment_multinom = quantile(SW_treatment_multinom, 0.01),
-      p50_SW_treatment_multinom = quantile(SW_treatment_multinom, 0.50),
-      p99_SW_treatment_multinom = quantile(SW_treatment_multinom, 0.99),
-      max_SW_treatment_multinom = max(SW_treatment_multinom),
-      mean_cSW_treatment_multinom = mean(cSW_treatment_multinom),
-      sd_cSW_treatment_multinom = sd(cSW_treatment_multinom),
-      min_cSW_treatment_multinom = min(cSW_treatment_multinom),
-      p1_cSW_treatment_multinom = quantile(cSW_treatment_multinom, 0.01),
-      p50_cSW_treatment_multinom = quantile(cSW_treatment_multinom, 0.50),
-      p99_cSW_treatment_multinom = quantile(cSW_treatment_multinom, 0.99),
-      max_cSW_treatment_multinom = max(cSW_treatment_multinom),
-      ESS_cSW_treatment_multinom = sum(cSW_treatment_multinom)^2 / sum(cSW_treatment_multinom^2)
-    )
-}
-
-summarise_total_multinom_weights <- function(data) {
-  data |>
-    dplyr::filter(use_msm, !is.na(SW_total_multinom_trunc)) |>
-    dplyr::summarise(
-      n = dplyr::n(),
-      n_patients = dplyr::n_distinct(pid),
-      mean_SW_total_multinom_trunc = mean(SW_total_multinom_trunc),
-      sd_SW_total_multinom_trunc = sd(SW_total_multinom_trunc),
-      min_SW_total_multinom_trunc = min(SW_total_multinom_trunc),
-      p1_SW_total_multinom_trunc = quantile(SW_total_multinom_trunc, 0.01),
-      p50_SW_total_multinom_trunc = quantile(SW_total_multinom_trunc, 0.50),
-      p99_SW_total_multinom_trunc = quantile(SW_total_multinom_trunc, 0.99),
-      max_SW_total_multinom_trunc = max(SW_total_multinom_trunc),
-      ESS_SW_total_multinom_trunc = sum(SW_total_multinom_trunc)^2 / sum(SW_total_multinom_trunc^2)
-    )
-}
-
-make_multinom_coef_table <- function(model) {
-  s <- summary(model)
-  coef_mat <- s$coefficients
-  se_mat <- s$standard.errors
-  if (is.null(dim(coef_mat))) {
-    coef_mat <- matrix(coef_mat, nrow = 1, dimnames = list(model$lev[2], names(coef_mat)))
-    se_mat <- matrix(se_mat, nrow = 1, dimnames = list(model$lev[2], names(se_mat)))
-  }
-  dplyr::bind_rows(lapply(rownames(coef_mat), function(dose_level) {
-    tibble::tibble(
-      Dose_level_vs_reference = dose_level,
-      Term = colnames(coef_mat),
-      Estimate = as.numeric(coef_mat[dose_level, ]),
-      SE = as.numeric(se_mat[dose_level, ]),
-      z_value = Estimate / SE,
-      p_value = 2 * pnorm(abs(z_value), lower.tail = FALSE)
-    )
-  }))
-}
-
 ################################################################################
 ######################## SAVE PLOT LISTS AS JPG GRIDS ###########################
 ################################################################################
@@ -1524,4 +1960,1243 @@ save_plot_grid_jpg <- function(
   )
   
   combined_plot
+}
+
+################################################################################
+######################## MULTINOMIAL IPTW FUNCTIONS ############################
+################################################################################
+
+
+################################################################################
+# Multinomial dose factor
+################################################################################
+
+make_multinom_dose_factor <- function(
+    dose_f,
+    ref_dose = NULL
+) {
+  
+  dose_chr <-
+    as.character(
+      dose_f
+    )
+  
+  dose_num <-
+    suppressWarnings(
+      as.numeric(
+        dose_chr
+      )
+    )
+  
+  dose_levels <-
+    sort(
+      unique(
+        dose_num[
+          !is.na(
+            dose_num
+          )
+        ]
+      )
+    )
+  
+  out <-
+    factor(
+      dose_chr,
+      levels =
+        as.character(
+          dose_levels
+        )
+    )
+  
+  
+  if (!is.null(ref_dose)) {
+    
+    ref_chr <-
+      as.character(
+        ref_dose
+      )
+    
+    if (
+      !ref_chr %in%
+      levels(out)
+    ) {
+      
+      stop(
+        paste0(
+          "Requested multinomial reference dose ",
+          ref_dose,
+          " is not present. Available doses: ",
+          paste(
+            levels(out),
+            collapse = ", "
+          )
+        )
+      )
+    }
+    
+    out <-
+      stats::relevel(
+        out,
+        ref = ref_chr
+      )
+  }
+  
+  
+  out
+}
+
+
+################################################################################
+# Multinomial IPTW denominator
+#
+# SAME covariates as ordinal denominator.
+################################################################################
+
+fit_iptw_multinom_denominator_model <- function(
+    data,
+    visit_df = 3,
+    ref_dose = 20
+) {
+  
+  model_dat <-
+    data |>
+    
+    dplyr::filter(
+      use_treatment_weight
+    ) |>
+    
+    dplyr::mutate(
+      
+      dose_multinom_f =
+        make_multinom_dose_factor(
+          dose_f,
+          ref_dose =
+            ref_dose
+        ),
+      
+      studyid =
+        droplevels(
+          as.factor(
+            studyid
+          )
+        ),
+      
+      dose_lag1_f =
+        droplevels(
+          dose_lag1_f
+        )
+    )
+  
+  
+  if (
+    nlevels(
+      model_dat$dose_multinom_f
+    ) < 2
+  ) {
+    
+    stop(
+      "Multinomial denominator: fewer than 2 dose levels."
+    )
+  }
+  
+  
+  rhs <-
+    paste0(
+      "rms::rcs(visit, ", visit_df, ") + ",
+      "studyid + ",
+      "delta_outcome_locf + ",
+      "side.effects_model_locf + ",
+      "dose_lag1_f + ",
+      "dose_lag1_f:delta_outcome_locf + ",
+      "dose_lag1_f:side.effects_model_locf + ",
+      "outcome_0"
+    )
+  
+  
+  model_formula <-
+    stats::as.formula(
+      paste(
+        "dose_multinom_f ~",
+        rhs
+      )
+    )
+  
+  
+  nnet::multinom(
+    
+    formula =
+      model_formula,
+    
+    data =
+      model_dat,
+    
+    trace =
+      FALSE,
+    
+    Hess =
+      TRUE,
+    
+    maxit =
+      2000,
+    
+    MaxNWts =
+      50000
+  )
+}
+
+
+################################################################################
+# Multinomial IPTW numerator
+#
+# SAME covariates as ordinal numerator.
+################################################################################
+
+fit_iptw_multinom_numerator_model <- function(
+    data,
+    visit_df = 3,
+    ref_dose = 20
+) {
+  
+  model_dat <-
+    data |>
+    
+    dplyr::filter(
+      use_treatment_weight
+    ) |>
+    
+    dplyr::mutate(
+      
+      dose_multinom_f =
+        make_multinom_dose_factor(
+          dose_f,
+          ref_dose =
+            ref_dose
+        ),
+      
+      studyid =
+        droplevels(
+          as.factor(
+            studyid
+          )
+        ),
+      
+      dose_lag1_f =
+        droplevels(
+          dose_lag1_f
+        )
+    )
+  
+  
+  if (
+    nlevels(
+      model_dat$dose_multinom_f
+    ) < 2
+  ) {
+    
+    stop(
+      "Multinomial numerator: fewer than 2 dose levels."
+    )
+  }
+  
+  
+  rhs <-
+    paste0(
+      "rms::rcs(visit, ", visit_df, ") + ",
+      "studyid + ",
+      "dose_lag1_f + ",
+      "outcome_0"
+    )
+  
+  
+  model_formula <-
+    stats::as.formula(
+      paste(
+        "dose_multinom_f ~",
+        rhs
+      )
+    )
+  
+  
+  nnet::multinom(
+    
+    formula =
+      model_formula,
+    
+    data =
+      model_dat,
+    
+    trace =
+      FALSE,
+    
+    Hess =
+      TRUE,
+    
+    maxit =
+      2000,
+    
+    MaxNWts =
+      50000
+  )
+}
+
+
+################################################################################
+# Multinomial coefficient table
+################################################################################
+
+make_multinom_coef_table <- function(
+    model
+) {
+  
+  model_summary <-
+    summary(
+      model
+    )
+  
+  coef_mat <-
+    model_summary$coefficients
+  
+  se_mat <-
+    model_summary$standard.errors
+  
+  
+  ##############################################################################
+  # Handle binary case too, although current analysis has >2 categories.
+  ##############################################################################
+  
+  if (
+    is.null(
+      dim(
+        coef_mat
+      )
+    )
+  ) {
+    
+    term_names <-
+      names(
+        coef_mat
+      )
+    
+    nonreference_class <-
+      setdiff(
+        model$lev,
+        model$lev[1]
+      )[1]
+    
+    coef_mat <-
+      matrix(
+        coef_mat,
+        nrow = 1,
+        dimnames = list(
+          nonreference_class,
+          term_names
+        )
+      )
+    
+    se_mat <-
+      matrix(
+        se_mat,
+        nrow = 1,
+        dimnames =
+          dimnames(
+            coef_mat
+          )
+      )
+  }
+  
+  
+  z_mat <-
+    coef_mat /
+    se_mat
+  
+  p_mat <-
+    2 *
+    stats::pnorm(
+      abs(
+        z_mat
+      ),
+      lower.tail = FALSE
+    )
+  
+  
+  tibble::tibble(
+    
+    dose_class =
+      rep(
+        rownames(
+          coef_mat
+        ),
+        each =
+          ncol(
+            coef_mat
+          )
+      ),
+    
+    term =
+      rep(
+        colnames(
+          coef_mat
+        ),
+        times =
+          nrow(
+            coef_mat
+          )
+      ),
+    
+    Estimate =
+      as.vector(
+        t(
+          coef_mat
+        )
+      ),
+    
+    Std_Error =
+      as.vector(
+        t(
+          se_mat
+        )
+      ),
+    
+    z_value =
+      as.vector(
+        t(
+          z_mat
+        )
+      ),
+    
+    p_value =
+      as.vector(
+        t(
+          p_mat
+        )
+      )
+  )
+}
+
+
+################################################################################
+# Extract fitted probability corresponding to ACTUAL observed dose
+################################################################################
+
+get_observed_dose_prob_multinom <- function(
+    model,
+    data,
+    outcome_var = "dose_multinom_f"
+) {
+  
+  prob_mat <- stats::predict(
+    model,
+    newdata = data,
+    type = "probs"
+  )
+  
+  
+  ##############################################################################
+  # Handle binary multinomial model if ever needed
+  ##############################################################################
+  
+  if (is.null(dim(prob_mat))) {
+    
+    if (length(model$lev) != 2) {
+      stop(
+        "Unexpected multinomial probability output."
+      )
+    }
+    
+    p_second <- as.numeric(prob_mat)
+    
+    prob_mat <- cbind(
+      1 - p_second,
+      p_second
+    )
+    
+    colnames(prob_mat) <- model$lev
+  }
+  
+  
+  ##############################################################################
+  # Observed dose for each treatment-decision row
+  ##############################################################################
+  
+  observed_dose <- as.character(
+    data[[outcome_var]]
+  )
+  
+  
+  matched_col <- match(
+    observed_dose,
+    colnames(prob_mat)
+  )
+  
+  
+  if (any(is.na(matched_col))) {
+    
+    missing_doses <- unique(
+      observed_dose[
+        is.na(matched_col)
+      ]
+    )
+    
+    stop(
+      paste0(
+        "Observed doses absent from multinomial probability matrix: ",
+        paste(
+          missing_doses,
+          collapse = ", "
+        )
+      )
+    )
+  }
+  
+  
+  ##############################################################################
+  # Probability corresponding to the dose actually received
+  ##############################################################################
+  
+  out <- prob_mat[
+    cbind(
+      seq_len(nrow(prob_mat)),
+      matched_col
+    )
+  ]
+  
+  
+  if (any(!is.finite(out))) {
+    
+    stop(
+      "Non-finite multinomial fitted probabilities."
+    )
+  }
+  
+  
+  as.numeric(out)
+}
+
+################################################################################
+# Add multinomial IPTW
+#
+# CRITICAL:
+# Treatment weight estimated at row t applies to FUTURE outcomes.
+#
+# Therefore cumulative treatment weight is LAGGED exactly as in
+# the primary ordinal IPTW analysis.
+################################################################################
+
+add_iptw_treatment_weights_multinom <- function(
+    data,
+    denominator_model,
+    numerator_model,
+    min_prob = 1e-6
+) {
+  
+  ##############################################################################
+  # Remove old multinomial-weight variables if present
+  ##############################################################################
+  
+  data <- data |>
+    dplyr::select(
+      -dplyr::any_of(
+        c(
+          "p_dose_denominator_multinom",
+          "p_dose_numerator_multinom",
+          "SW_treatment_multinom",
+          "cSW_treatment_multinom"
+        )
+      )
+    )
+  
+  
+  ##############################################################################
+  # Dose levels must be identical in numerator and denominator
+  ##############################################################################
+  
+  denominator_levels <- denominator_model$lev
+  numerator_levels <- numerator_model$lev
+  
+  
+  if (!setequal(
+    denominator_levels,
+    numerator_levels
+  )) {
+    
+    stop(
+      "Multinomial numerator and denominator have different dose levels."
+    )
+  }
+  
+  
+  ##############################################################################
+  # Rows entering treatment-assignment models
+  ##############################################################################
+  
+  weight_dat <- data |>
+    dplyr::filter(
+      use_treatment_weight
+    ) |>
+    dplyr::mutate(
+      
+      dose_multinom_f = factor(
+        as.character(dose_f),
+        levels = denominator_levels
+      )
+    )
+  
+  
+  ##############################################################################
+  # Match factor levels used when denominator model was fitted
+  ##############################################################################
+  
+  factor_vars <- c(
+    "studyid",
+    "dose_lag1_f"
+  )
+  
+  
+  for (v in factor_vars) {
+    
+    if (
+      !is.null(denominator_model$xlevels) &&
+      v %in% names(denominator_model$xlevels)
+    ) {
+      
+      weight_dat[[v]] <- factor(
+        as.character(
+          weight_dat[[v]]
+        ),
+        levels =
+          denominator_model$xlevels[[v]]
+      )
+    }
+  }
+  
+  
+  ##############################################################################
+  # Safety checks
+  ##############################################################################
+  
+  if (any(
+    is.na(weight_dat$dose_multinom_f)
+  )) {
+    
+    stop(
+      "At least one observed dose is absent from the multinomial model levels."
+    )
+  }
+  
+  
+  if (any(
+    is.na(weight_dat$studyid)
+  )) {
+    
+    stop(
+      "At least one study became NA when matching multinomial model factor levels."
+    )
+  }
+  
+  
+  if (any(
+    is.na(weight_dat$dose_lag1_f)
+  )) {
+    
+    stop(
+      "At least one previous-dose value became NA when matching multinomial model factor levels."
+    )
+  }
+  
+  
+  ##############################################################################
+  # Denominator probability of ACTUAL dose
+  ##############################################################################
+  
+  weight_dat$p_dose_denominator_multinom <-
+    get_observed_dose_prob_multinom(
+      model = denominator_model,
+      data = weight_dat,
+      outcome_var = "dose_multinom_f"
+    )
+  
+  
+  ##############################################################################
+  # Numerator probability of ACTUAL dose
+  ##############################################################################
+  
+  weight_dat$p_dose_numerator_multinom <-
+    get_observed_dose_prob_multinom(
+      model = numerator_model,
+      data = weight_dat,
+      outcome_var = "dose_multinom_f"
+    )
+  
+  
+  ##############################################################################
+  # Stabilized visit-specific treatment weight
+  ##############################################################################
+  
+  weight_dat <- weight_dat |>
+    dplyr::mutate(
+      
+      p_dose_denominator_multinom =
+        pmax(
+          p_dose_denominator_multinom,
+          min_prob
+        ),
+      
+      p_dose_numerator_multinom =
+        pmax(
+          p_dose_numerator_multinom,
+          min_prob
+        ),
+      
+      SW_treatment_multinom =
+        p_dose_numerator_multinom /
+        p_dose_denominator_multinom
+    )
+  
+  
+  ##############################################################################
+  # Join visit-specific weights back to full longitudinal dataset
+  ##############################################################################
+  
+  out <- data |>
+    dplyr::left_join(
+      
+      weight_dat |>
+        dplyr::select(
+          pid,
+          visit,
+          p_dose_denominator_multinom,
+          p_dose_numerator_multinom,
+          SW_treatment_multinom
+        ),
+      
+      by = c(
+        "pid",
+        "visit"
+      )
+    ) |>
+    
+    dplyr::arrange(
+      pid,
+      visit
+    ) |>
+    
+    dplyr::group_by(pid) |>
+    
+    dplyr::mutate(
+      
+      ##########################################################################
+      # Treatment prescribed at visit t affects FUTURE outcomes.
+      #
+      # Therefore use the previous treatment-decision weight for the
+      # current outcome row, exactly as in the primary ordinal analysis.
+      ##########################################################################
+      
+      cSW_treatment_multinom =
+        cumprod(
+          dplyr::lag(
+            dplyr::coalesce(
+              SW_treatment_multinom,
+              1
+            ),
+            default = 1
+          )
+        )
+    ) |>
+    
+    dplyr::ungroup()
+  
+  
+  out
+}
+
+################################################################################
+# Combine multinomial treatment weight with SAME IPCW used in primary analysis
+################################################################################
+
+add_total_weights_multinom <- function(
+    data
+) {
+  
+  data |>
+    dplyr::mutate(
+      
+      SW_total_multinom =
+        dplyr::case_when(
+          
+          use_msm &
+            !is.na(
+              cSW_treatment_multinom
+            ) &
+            !is.na(
+              cSW_censoring
+            ) ~
+            
+            cSW_treatment_multinom *
+            cSW_censoring,
+          
+          TRUE ~
+            NA_real_
+        )
+    )
+}
+
+
+################################################################################
+# Truncate TOTAL multinomial weight only
+################################################################################
+
+truncate_total_weights_multinom <- function(
+    data,
+    lower = 0.01,
+    upper = 0.99
+) {
+  
+  valid_weights <-
+    data$SW_total_multinom[
+      data$use_msm &
+        !is.na(
+          data$SW_total_multinom
+        )
+    ]
+  
+  
+  if (
+    length(
+      valid_weights
+    ) == 0
+  ) {
+    
+    stop(
+      "No valid multinomial total weights available for truncation."
+    )
+  }
+  
+  
+  cutoffs <-
+    stats::quantile(
+      
+      valid_weights,
+      
+      probs =
+        c(
+          lower,
+          upper
+        ),
+      
+      na.rm =
+        TRUE,
+      
+      names =
+        FALSE
+    )
+  
+  
+  data |>
+    dplyr::mutate(
+      
+      SW_total_multinom_trunc =
+        dplyr::case_when(
+          
+          is.na(
+            SW_total_multinom
+          ) ~
+            NA_real_,
+          
+          SW_total_multinom <
+            cutoffs[1] ~
+            cutoffs[1],
+          
+          SW_total_multinom >
+            cutoffs[2] ~
+            cutoffs[2],
+          
+          TRUE ~
+            SW_total_multinom
+        )
+    )
+}
+
+
+################################################################################
+# Multinomial IPTW summary
+################################################################################
+
+summarise_iptw_multinom_treatment_weights <- function(
+    data
+) {
+  
+  dat <-
+    data |>
+    
+    dplyr::filter(
+      
+      use_treatment_weight,
+      
+      !is.na(
+        SW_treatment_multinom
+      ),
+      
+      !is.na(
+        cSW_treatment_multinom
+      )
+    )
+  
+  
+  ess <-
+    function(w) {
+      
+      (
+        sum(
+          w
+        )^2
+      ) /
+        sum(
+          w^2
+        )
+    }
+  
+  
+  dat |>
+    dplyr::summarise(
+      
+      n =
+        dplyr::n(),
+      
+      n_patients =
+        dplyr::n_distinct(
+          pid
+        ),
+      
+      mean_SW_treatment_multinom =
+        mean(
+          SW_treatment_multinom
+        ),
+      
+      sd_SW_treatment_multinom =
+        stats::sd(
+          SW_treatment_multinom
+        ),
+      
+      min_SW_treatment_multinom =
+        min(
+          SW_treatment_multinom
+        ),
+      
+      p1_SW_treatment_multinom =
+        as.numeric(
+          stats::quantile(
+            SW_treatment_multinom,
+            0.01
+          )
+        ),
+      
+      p50_SW_treatment_multinom =
+        stats::median(
+          SW_treatment_multinom
+        ),
+      
+      p99_SW_treatment_multinom =
+        as.numeric(
+          stats::quantile(
+            SW_treatment_multinom,
+            0.99
+          )
+        ),
+      
+      max_SW_treatment_multinom =
+        max(
+          SW_treatment_multinom
+        ),
+      
+      mean_cSW_treatment_multinom =
+        mean(
+          cSW_treatment_multinom
+        ),
+      
+      sd_cSW_treatment_multinom =
+        stats::sd(
+          cSW_treatment_multinom
+        ),
+      
+      min_cSW_treatment_multinom =
+        min(
+          cSW_treatment_multinom
+        ),
+      
+      p1_cSW_treatment_multinom =
+        as.numeric(
+          stats::quantile(
+            cSW_treatment_multinom,
+            0.01
+          )
+        ),
+      
+      p50_cSW_treatment_multinom =
+        stats::median(
+          cSW_treatment_multinom
+        ),
+      
+      p99_cSW_treatment_multinom =
+        as.numeric(
+          stats::quantile(
+            cSW_treatment_multinom,
+            0.99
+          )
+        ),
+      
+      max_cSW_treatment_multinom =
+        max(
+          cSW_treatment_multinom
+        ),
+      
+      ESS_cSW_treatment_multinom =
+        ess(
+          cSW_treatment_multinom
+        )
+    )
+}
+
+
+################################################################################
+# Untruncated multinomial total weights
+################################################################################
+
+summarise_total_multinom_weights <- function(
+    data
+) {
+  
+  dat <-
+    data |>
+    
+    dplyr::filter(
+      
+      use_msm,
+      
+      !is.na(
+        SW_total_multinom
+      )
+    )
+  
+  
+  ess <-
+    function(w) {
+      
+      (
+        sum(w)^2
+      ) /
+        sum(
+          w^2
+        )
+    }
+  
+  
+  dat |>
+    dplyr::summarise(
+      
+      n =
+        dplyr::n(),
+      
+      n_patients =
+        dplyr::n_distinct(
+          pid
+        ),
+      
+      mean_SW_total_multinom =
+        mean(
+          SW_total_multinom
+        ),
+      
+      sd_SW_total_multinom =
+        stats::sd(
+          SW_total_multinom
+        ),
+      
+      min_SW_total_multinom =
+        min(
+          SW_total_multinom
+        ),
+      
+      p1_SW_total_multinom =
+        as.numeric(
+          stats::quantile(
+            SW_total_multinom,
+            0.01
+          )
+        ),
+      
+      p50_SW_total_multinom =
+        stats::median(
+          SW_total_multinom
+        ),
+      
+      p99_SW_total_multinom =
+        as.numeric(
+          stats::quantile(
+            SW_total_multinom,
+            0.99
+          )
+        ),
+      
+      max_SW_total_multinom =
+        max(
+          SW_total_multinom
+        ),
+      
+      ESS_SW_total_multinom =
+        ess(
+          SW_total_multinom
+        )
+    )
+}
+
+
+################################################################################
+# Truncated multinomial total weights
+################################################################################
+
+summarise_total_multinom_truncated_weights <- function(
+    data
+) {
+  
+  dat <-
+    data |>
+    
+    dplyr::filter(
+      
+      use_msm,
+      
+      !is.na(
+        SW_total_multinom_trunc
+      )
+    )
+  
+  
+  ess <-
+    function(w) {
+      
+      (
+        sum(w)^2
+      ) /
+        sum(
+          w^2
+        )
+    }
+  
+  
+  dat |>
+    dplyr::summarise(
+      
+      n =
+        dplyr::n(),
+      
+      n_patients =
+        dplyr::n_distinct(
+          pid
+        ),
+      
+      mean_SW_total_multinom_trunc =
+        mean(
+          SW_total_multinom_trunc
+        ),
+      
+      sd_SW_total_multinom_trunc =
+        stats::sd(
+          SW_total_multinom_trunc
+        ),
+      
+      min_SW_total_multinom_trunc =
+        min(
+          SW_total_multinom_trunc
+        ),
+      
+      p1_SW_total_multinom_trunc =
+        as.numeric(
+          stats::quantile(
+            SW_total_multinom_trunc,
+            0.01
+          )
+        ),
+      
+      p50_SW_total_multinom_trunc =
+        stats::median(
+          SW_total_multinom_trunc
+        ),
+      
+      p99_SW_total_multinom_trunc =
+        as.numeric(
+          stats::quantile(
+            SW_total_multinom_trunc,
+            0.99
+          )
+        ),
+      
+      max_SW_total_multinom_trunc =
+        max(
+          SW_total_multinom_trunc
+        ),
+      
+      ESS_SW_total_multinom_trunc =
+        ess(
+          SW_total_multinom_trunc
+        )
+    )
+}
+
+
+################################################################################
+# Check multinomial truncation
+################################################################################
+
+check_multinom_truncation <- function(
+    data
+) {
+  
+  dat <-
+    data |>
+    
+    dplyr::filter(
+      
+      use_msm,
+      
+      !is.na(
+        SW_total_multinom
+      ),
+      
+      !is.na(
+        SW_total_multinom_trunc
+      )
+    )
+  
+  
+  dat |>
+    dplyr::summarise(
+      
+      n =
+        dplyr::n(),
+      
+      n_lower_truncated =
+        sum(
+          SW_total_multinom_trunc >
+            SW_total_multinom
+        ),
+      
+      n_upper_truncated =
+        sum(
+          SW_total_multinom_trunc <
+            SW_total_multinom
+        ),
+      
+      n_any_truncated =
+        sum(
+          SW_total_multinom_trunc !=
+            SW_total_multinom
+        ),
+      
+      percent_any_truncated =
+        100 *
+        mean(
+          SW_total_multinom_trunc !=
+            SW_total_multinom
+        )
+    )
 }

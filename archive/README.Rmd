@@ -1,0 +1,2101 @@
+---
+title: "Flexible dose-response models"
+output:
+  github_document:
+    toc: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+
+
+```{r include=FALSE}
+### Libraries and analysis objects
+source("01_functions.R")
+load_required_packages()
+
+if (!requireNamespace("patchwork", quietly = TRUE)) {
+  stop("Package not installed: patchwork")
+}
+library(patchwork)
+
+source("02_data_prep.R")
+
+VISIT_DF <- 3
+TRUNCATION <- c(0.01, 0.99)
+INCLUDE_DOSE_TIME_INTERACTION <- TRUE
+USE_IPCW <- TRUE
+STRATEGY_DOSES <- NULL
+BASELINE_DOSE_FOR_PREDICTIONS <- NULL
+RUN_MULTINOMIAL_SENSITIVITY <- TRUE
+MULTINOMIAL_REF_DOSE <- NULL
+
+TABLE_MAX_VISIT <- 8
+MSM_MAX_VISIT <- 9
+PREDICTION_Y_LIMITS <- c(-10, 40)
+PREDICTION_Y_BREAKS <- seq(-10, 40, by = 10)
+
+make_plot_grid <- function(plot_list, ncol = 4) {
+  plot_list <- purrr::compact(plot_list)
+  if (length(plot_list) == 0) return(NULL)
+  patchwork::wrap_plots(plot_list, ncol = ncol)
+}
+
+print_kable_list <- function(tab_list, caption, digits = 3) {
+  for (nm in names(tab_list)) {
+    print(
+      knitr::kable(
+        as.data.frame(tab_list[[nm]]),
+        digits = digits,
+        caption = paste0("<small><em>", caption, ": ", nm, "</em></small>")
+      )
+    )
+    cat("
+
+")
+  }
+}
+
+stack_named_tables <- function(tab_list) {
+  purrr::imap_dfr(
+    tab_list,
+    function(tab, nm) {
+      as.data.frame(tab) |>
+        dplyr::mutate(arm_name = nm, .before = 1)
+    }
+  )
+}
+
+################################################################################
+# Descriptive plot grids
+################################################################################
+
+dose_by_visit_plots <- purrr::imap(
+  analysis_arms,
+  function(dat, arm_name) {
+    plot_dat <- dat |>
+      dplyr::filter(use_treatment_weight) |>
+      dplyr::count(visit, dose_f, name = "n")
+
+    ggplot2::ggplot(plot_dat, ggplot2::aes(x = visit, y = n, fill = dose_f)) +
+      ggplot2::geom_col(position = "stack") +
+      ggplot2::scale_x_continuous(breaks = sort(unique(plot_dat$visit))) +
+      ggplot2::labs(
+        x = "Visit",
+        y = "Number of patient-visits",
+        fill = "Dose",
+        title = arm_name
+      ) +
+      ggplot2::theme_minimal(base_size = 12) +
+      ggplot2::theme(plot.title = ggplot2::element_text(face = "bold"))
+  }
+)
+
+dose_transition_plots <- purrr::imap(
+  analysis_arms,
+  function(dat, arm_name) {
+    plot_dat <- dat |>
+      dplyr::filter(use_treatment_weight) |>
+      dplyr::count(visit, dose_lag1_f, dose_f, name = "n")
+
+    ggplot2::ggplot(plot_dat, ggplot2::aes(x = dose_f, y = dose_lag1_f, fill = n)) +
+      ggplot2::geom_tile(color = "white") +
+      ggplot2::geom_text(ggplot2::aes(label = n), size = 3) +
+      ggplot2::facet_wrap(~ visit) +
+      ggplot2::labs(
+        x = "Current dose",
+        y = "Previous dose",
+        fill = "n",
+        title = arm_name
+      ) +
+      ggplot2::theme_minimal(base_size = 12) +
+      ggplot2::theme(
+        plot.title = ggplot2::element_text(face = "bold"),
+        axis.text.x = ggplot2::element_text(angle = 45, hjust = 1)
+      )
+  }
+)
+
+dose_grouping_plots <- purrr::imap(
+  analysis_arms,
+  function(dat, arm_name) {
+    if (!all(c("dose_before_grouping", "dose_grouped") %in% names(dat))) {
+      return(NULL)
+    }
+
+    plot_dat <- dat |>
+      dplyr::filter(visit > 0) |>
+      dplyr::count(dose_before_grouping, dose_grouped, name = "n")
+
+    ggplot2::ggplot(
+      plot_dat,
+      ggplot2::aes(
+        x = factor(dose_before_grouping),
+        y = n,
+        fill = factor(dose_grouped)
+      )
+    ) +
+      ggplot2::geom_col(position = "stack") +
+      ggplot2::labs(
+        x = "Original dose before grouping",
+        y = "Number of patient-visits",
+        fill = "Grouped dose",
+        title = arm_name
+      ) +
+      ggplot2::theme_minimal(base_size = 12) +
+      ggplot2::theme(plot.title = ggplot2::element_text(face = "bold"))
+  }
+)
+
+side_effect_plots <- purrr::imap(
+  analysis_arms,
+  function(dat, arm_name) {
+    ggplot2::ggplot(
+      dat |> dplyr::filter(visit > 0),
+      ggplot2::aes(x = side.effects, y = dose)
+    ) +
+      ggplot2::geom_jitter(width = 0.15, height = 0.4, alpha = 0.6, size = 1.5) +
+      ggplot2::geom_smooth(method = "lm", se = FALSE) +
+      ggplot2::labs(
+        x = "Side effects",
+        y = "Dose",
+        title = arm_name
+      ) +
+      ggplot2::theme_minimal(base_size = 12) +
+      ggplot2::theme(plot.title = ggplot2::element_text(face = "bold"))
+  }
+)
+
+dose_by_visit_grid <- make_plot_grid(dose_by_visit_plots, ncol = 4)
+dose_transition_grid <- make_plot_grid(dose_transition_plots, ncol = 4)
+dose_grouping_grid <- make_plot_grid(dose_grouping_plots, ncol = 4)
+side_effect_grid <- make_plot_grid(side_effect_plots, ncol = 4)
+
+################################################################################
+# Modelability and IPTW
+################################################################################
+
+MIN_PATIENTS_FOR_MODEL <- 30
+MIN_TREATMENT_ROWS_FOR_MODEL <- 100
+MIN_DOSE_LEVELS_FOR_MODEL <- 2
+
+arm_modelability <- purrr::imap_dfr(
+  analysis_arms,
+  function(dat, arm_name) {
+    model_dat <- dat |>
+      dplyr::filter(use_treatment_weight)
+
+    dose_counts <- model_dat |>
+      dplyr::count(dose_f, name = "n")
+
+    tibble::tibble(
+      arm_name = arm_name,
+      n_patients = dplyr::n_distinct(model_dat$pid),
+      n_treatment_rows = nrow(model_dat),
+      n_dose_levels = nrow(dose_counts),
+      min_n_per_dose = min(dose_counts$n, na.rm = TRUE),
+      dose_levels = paste(as.character(dose_counts$dose_f), collapse = ", "),
+      modelable =
+        dplyr::n_distinct(model_dat$pid) >= MIN_PATIENTS_FOR_MODEL &&
+        nrow(model_dat) >= MIN_TREATMENT_ROWS_FOR_MODEL &&
+        nrow(dose_counts) >= MIN_DOSE_LEVELS_FOR_MODEL
+    )
+  }
+)
+
+modelable_arm_names <- arm_modelability |>
+  dplyr::filter(modelable) |>
+  dplyr::pull(arm_name)
+
+analysis_arms_model <- analysis_arms[modelable_arm_names]
+
+iptw_denominator_runs <- safe_imap(
+  analysis_arms_model,
+  function(dat, arm_name) {
+    fit_iptw_denominator_model(data = dat, visit_df = VISIT_DF)
+  }
+)
+iptw_denominator_models <- get_success_results(iptw_denominator_runs)
+iptw_denominator_coef_tabs <- purrr::map(iptw_denominator_models, make_polr_coef_table)
+
+################################################################################
+# Dose-model plots
+################################################################################
+
+make_iptw_dose_model_plot_data <- function(model, data) {
+  model_dat <- data |>
+    dplyr::filter(use_treatment_weight) |>
+    dplyr::mutate(.row_id = dplyr::row_number())
+
+  prob_mat <- predict(model, newdata = model_dat, type = "probs")
+
+  if (is.null(dim(prob_mat))) {
+    prob_names <- names(prob_mat)
+    prob_mat <- matrix(prob_mat, nrow = 1)
+    colnames(prob_mat) <- prob_names
+  }
+
+  dose_levels <- colnames(prob_mat)
+  dose_levels_sorted <- as.character(sort(as.numeric(as.character(dose_levels))))
+
+  prob_df <- as.data.frame(prob_mat)
+  prob_df$.row_id <- seq_len(nrow(prob_df))
+
+  pred_long <- model_dat |>
+    dplyr::select(.row_id, visit, observed_dose = dose_f) |>
+    dplyr::left_join(prob_df, by = ".row_id") |>
+    tidyr::pivot_longer(
+      cols = dplyr::all_of(dose_levels),
+      names_to = "dose",
+      values_to = "predicted_probability"
+    ) |>
+    dplyr::mutate(dose = factor(dose, levels = dose_levels_sorted))
+
+  predicted_summary <- pred_long |>
+    dplyr::group_by(visit, dose) |>
+    dplyr::summarise(
+      mean_predicted_probability = mean(predicted_probability, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  observed_counts <- model_dat |>
+    dplyr::count(visit, dose = as.character(dose_f), name = "observed_n")
+
+  visit_totals <- model_dat |>
+    dplyr::count(visit, name = "observed_total")
+
+  tidyr::expand_grid(
+    visit = sort(unique(model_dat$visit)),
+    dose = dose_levels_sorted
+  ) |>
+    dplyr::mutate(dose = factor(dose, levels = dose_levels_sorted)) |>
+    dplyr::left_join(predicted_summary, by = c("visit", "dose")) |>
+    dplyr::left_join(
+      observed_counts |>
+        dplyr::mutate(dose = factor(dose, levels = dose_levels_sorted)),
+      by = c("visit", "dose")
+    ) |>
+    dplyr::left_join(visit_totals, by = "visit") |>
+    dplyr::mutate(
+      observed_n = tidyr::replace_na(observed_n, 0L),
+      observed_proportion = observed_n / observed_total
+    )
+}
+
+make_iptw_dose_model_plot <- function(plot_dat, arm_name) {
+  ggplot2::ggplot(
+    plot_dat,
+    ggplot2::aes(x = visit, group = dose, color = dose)
+  ) +
+    ggplot2::geom_line(
+      ggplot2::aes(y = mean_predicted_probability),
+      linewidth = 1
+    ) +
+    ggplot2::geom_point(
+      ggplot2::aes(y = observed_proportion, shape = dose),
+      size = 2,
+      alpha = 0.80
+    ) +
+    ggplot2::scale_x_continuous(breaks = sort(unique(plot_dat$visit))) +
+    ggplot2::scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.2)) +
+    ggplot2::labs(
+      x = "Visit",
+      y = "Dose probability",
+      color = "Dose",
+      shape = "Observed dose",
+      title = arm_name,
+      subtitle = "Lines = mean model-predicted dose probabilities; points = observed dose proportions"
+    ) +
+    ggplot2::theme_classic(base_size = 12) +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(face = "bold"),
+      panel.grid.major.y = ggplot2::element_line(color = "grey90", linewidth = 0.3),
+      panel.grid.major.x = ggplot2::element_blank(),
+      legend.position = "right"
+    )
+}
+
+iptw_dose_model_plot_data <- purrr::imap(
+  iptw_denominator_models,
+  function(model, arm_name) {
+    make_iptw_dose_model_plot_data(model, analysis_arms_model[[arm_name]])
+  }
+)
+
+iptw_dose_model_plots <- purrr::imap(
+  iptw_dose_model_plot_data,
+  function(plot_dat, arm_name) {
+    make_iptw_dose_model_plot(plot_dat, arm_name)
+  }
+)
+
+iptw_dose_model_grid <- make_plot_grid(iptw_dose_model_plots, ncol = 4)
+
+DOSE_MODEL_PROFILE_PREVIOUS_DOSE_BY_ARM <- list(
+  "29060_002_PAROXETINE" = 20,
+  "29060_003_PAROXETINE" = 20,
+  "29060_003_IMIPRAMINE" = 65
+)
+DOSE_MODEL_PROFILE_SIDE_EFFECTS <- 4
+DOSE_MODEL_PROFILE_VISITS <- 1:8
+
+get_dose_model_profile_previous_dose <- function(data, arm_name) {
+  model_dat <- data |> dplyr::filter(use_treatment_weight)
+  available_previous_doses <- levels(model_dat$dose_lag1_f) |>
+    as.numeric()
+  available_previous_doses <- sort(unique(available_previous_doses[!is.na(available_previous_doses) & available_previous_doses > 0]))
+
+  if (
+    exists("DOSE_MODEL_PROFILE_PREVIOUS_DOSE_BY_ARM") &&
+      !is.null(DOSE_MODEL_PROFILE_PREVIOUS_DOSE_BY_ARM) &&
+      arm_name %in% names(DOSE_MODEL_PROFILE_PREVIOUS_DOSE_BY_ARM)
+  ) {
+    previous_dose <- DOSE_MODEL_PROFILE_PREVIOUS_DOSE_BY_ARM[[arm_name]]
+  } else {
+    previous_dose <- min(available_previous_doses, na.rm = TRUE)
+  }
+
+  if (!(previous_dose %in% available_previous_doses)) {
+    stop(
+      "Requested previous dose ", previous_dose,
+      " is not available for arm ", arm_name,
+      ". Available previous doses are: ",
+      paste(available_previous_doses, collapse = ", ")
+    )
+  }
+
+  previous_dose
+}
+
+make_dose_model_profile_data <- function(
+    model,
+    data,
+    previous_dose = 20,
+    side_effect_value = 4,
+    visits = 1:8
+) {
+  model_dat <- data |>
+    dplyr::filter(use_treatment_weight)
+
+  dose_lag1_levels <- levels(model_dat$dose_lag1_f)
+  dose_lag1_numeric <- as.numeric(as.character(dose_lag1_levels))
+  available_previous_doses <- dose_lag1_numeric[!is.na(dose_lag1_numeric) & dose_lag1_numeric > 0]
+
+  if (as.character(previous_dose) %in% dose_lag1_levels) {
+    previous_dose_used <- previous_dose
+  } else {
+    previous_dose_used <- min(available_previous_doses, na.rm = TRUE)
+  }
+
+  mean_outcome_0 <- mean(model_dat$outcome_0, na.rm = TRUE)
+
+  profile_values <- model_dat |>
+    dplyr::filter(visit %in% visits) |>
+    dplyr::group_by(visit) |>
+    dplyr::summarise(
+      improving_delta_outcome = stats::quantile(delta_outcome, probs = 0.75, na.rm = TRUE, names = FALSE),
+      worsening_delta_outcome = stats::quantile(delta_outcome, probs = 0.25, na.rm = TRUE, names = FALSE),
+      .groups = "drop"
+    ) |>
+    tidyr::pivot_longer(
+      cols = c(improving_delta_outcome, worsening_delta_outcome),
+      names_to = "profile",
+      values_to = "delta_outcome"
+    ) |>
+    dplyr::mutate(
+      profile = dplyr::case_when(
+        profile == "improving_delta_outcome" ~ "Improving profile",
+        profile == "worsening_delta_outcome" ~ "Worsening profile",
+        TRUE ~ profile
+      )
+    )
+
+  newdat <- profile_values |>
+    dplyr::mutate(
+      outcome_0 = mean_outcome_0,
+      side.effects = side_effect_value,
+      dose_lag1_f = factor(
+        as.character(previous_dose_used),
+        levels = levels(model_dat$dose_lag1_f)
+      )
+    )
+
+  prob_mat <- predict(model, newdata = newdat, type = "probs")
+
+  if (is.null(dim(prob_mat))) {
+    prob_names <- names(prob_mat)
+    prob_mat <- matrix(prob_mat, nrow = 1)
+    colnames(prob_mat) <- prob_names
+  }
+
+  dose_levels <- colnames(prob_mat)
+  dose_levels_sorted <- as.character(sort(as.numeric(as.character(dose_levels))))
+  prob_df <- as.data.frame(prob_mat)
+  names(prob_df) <- dose_levels
+  prob_df$.row_id <- seq_len(nrow(prob_df))
+
+  newdat |>
+    dplyr::mutate(.row_id = dplyr::row_number()) |>
+    dplyr::left_join(prob_df, by = ".row_id") |>
+    tidyr::pivot_longer(
+      cols = dplyr::all_of(dose_levels),
+      names_to = "current_dose",
+      values_to = "predicted_probability"
+    ) |>
+    dplyr::mutate(
+      current_dose = factor(current_dose, levels = dose_levels_sorted),
+      profile = factor(profile, levels = c("Improving profile", "Worsening profile")),
+      previous_dose_used = previous_dose_used,
+      side_effect_value = side_effect_value,
+      mean_outcome_0 = mean_outcome_0
+    ) |>
+    dplyr::arrange(profile, current_dose, visit)
+}
+
+make_dose_model_profile_plot <- function(plot_dat, arm_name) {
+  previous_dose_used <- unique(plot_dat$previous_dose_used)[1]
+
+  ggplot2::ggplot(
+    plot_dat,
+    ggplot2::aes(x = visit, y = predicted_probability, color = current_dose, group = current_dose)
+  ) +
+    ggplot2::geom_line(linewidth = 1) +
+    ggplot2::geom_point(size = 2) +
+    ggplot2::facet_wrap(~ profile, ncol = 1) +
+    ggplot2::scale_x_continuous(breaks = sort(unique(plot_dat$visit))) +
+    ggplot2::scale_y_continuous(
+      limits = c(0, 1),
+      breaks = seq(0, 1, by = 0.25),
+      labels = scales::percent_format(accuracy = 1)
+    ) +
+    ggplot2::labs(
+      x = "Visit",
+      y = "Predicted probability of assigned dose",
+      color = "Current dose",
+      title = paste0("Previous dose fixed at ", previous_dose_used, " mg"),
+      subtitle = arm_name
+    ) +
+    ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(face = "bold"),
+      panel.grid.minor = ggplot2::element_line(color = "grey92", linewidth = 0.25),
+      panel.grid.major = ggplot2::element_line(color = "grey88", linewidth = 0.35),
+      legend.position = "right"
+    )
+}
+
+iptw_dose_model_profile_data <- purrr::imap(
+  iptw_denominator_models,
+  function(model, arm_name) {
+    previous_dose_this_arm <- get_dose_model_profile_previous_dose(
+      data = analysis_arms_model[[arm_name]],
+      arm_name = arm_name
+    )
+
+    make_dose_model_profile_data(
+      model = model,
+      data = analysis_arms_model[[arm_name]],
+      previous_dose = previous_dose_this_arm,
+      side_effect_value = DOSE_MODEL_PROFILE_SIDE_EFFECTS,
+      visits = DOSE_MODEL_PROFILE_VISITS
+    )
+  }
+)
+
+iptw_dose_model_profile_plots <- purrr::imap(
+  iptw_dose_model_profile_data,
+  function(plot_dat, arm_name) make_dose_model_profile_plot(plot_dat, arm_name)
+)
+
+iptw_dose_model_profile_grid <- make_plot_grid(iptw_dose_model_profile_plots, ncol = 4)
+
+################################################################################
+# Numerator, weights, IPCW, total weights, MSM
+################################################################################
+
+iptw_numerator_runs <- safe_imap(
+  analysis_arms_model,
+  function(dat, arm_name) {
+    fit_iptw_numerator_model(data = dat, visit_df = VISIT_DF)
+  }
+)
+iptw_numerator_models <- get_success_results(iptw_numerator_runs)
+iptw_numerator_coef_tabs <- purrr::map(iptw_numerator_models, make_polr_coef_table)
+
+iptw_common_arms <- Reduce(
+  intersect,
+  list(names(analysis_arms_model), names(iptw_denominator_models), names(iptw_numerator_models))
+)
+
+iptw_weight_runs <- safe_imap(
+  analysis_arms_model[iptw_common_arms],
+  function(dat, arm_name) {
+    add_iptw_treatment_weights(
+      data = dat,
+      denominator_model = iptw_denominator_models[[arm_name]],
+      numerator_model = iptw_numerator_models[[arm_name]]
+    )
+  }
+)
+analysis_arms_iptw <- get_success_results(iptw_weight_runs)
+iptw_weight_summaries <- purrr::map(analysis_arms_iptw, summarise_iptw_treatment_weights)
+
+if (isTRUE(USE_IPCW)) {
+  ipcw_denominator_runs <- safe_imap(
+    analysis_arms_iptw,
+    function(dat, arm_name) fit_ipcw_denominator_model(data = dat)
+  )
+  ipcw_denominator_models <- get_success_results(ipcw_denominator_runs)
+  ipcw_denominator_coef_tabs <- purrr::map(ipcw_denominator_models, make_glm_coef_table)
+
+  ipcw_numerator_runs <- safe_imap(
+    analysis_arms_iptw,
+    function(dat, arm_name) fit_ipcw_numerator_model(data = dat)
+  )
+  ipcw_numerator_models <- get_success_results(ipcw_numerator_runs)
+  ipcw_numerator_coef_tabs <- purrr::map(ipcw_numerator_models, make_glm_coef_table)
+
+  ipcw_common_arms <- Reduce(
+    intersect,
+    list(names(analysis_arms_iptw), names(ipcw_denominator_models), names(ipcw_numerator_models))
+  )
+
+  ipcw_weight_runs <- safe_imap(
+    analysis_arms_iptw[ipcw_common_arms],
+    function(dat, arm_name) {
+      add_ipcw_censoring_weights(
+        data = dat,
+        denominator_model = ipcw_denominator_models[[arm_name]],
+        numerator_model = ipcw_numerator_models[[arm_name]]
+      )
+    }
+  )
+
+  analysis_arms_ipdcw <- get_success_results(ipcw_weight_runs)
+} else {
+  ipcw_denominator_coef_tabs <- list()
+  ipcw_numerator_coef_tabs <- list()
+  analysis_arms_ipdcw <- purrr::map(analysis_arms_iptw, add_no_censoring_weights)
+}
+
+ipcw_weight_summaries <- purrr::map(analysis_arms_ipdcw, summarise_ipcw_censoring_weights)
+
+total_weight_runs <- safe_imap(
+  analysis_arms_ipdcw,
+  function(dat, arm_name) {
+    dat |>
+      add_total_weights() |>
+      truncate_total_weights(lower = TRUNCATION[1], upper = TRUNCATION[2])
+  }
+)
+analysis_arms_weighted <- get_success_results(total_weight_runs)
+total_weight_summaries <- purrr::map(analysis_arms_weighted, summarise_total_weights)
+total_truncated_weight_summaries <- purrr::map(analysis_arms_weighted, summarise_total_truncated_weights)
+
+msm_runs <- safe_imap(
+  analysis_arms_weighted,
+  function(dat, arm_name) {
+    fit_weighted_msm(
+      data = dat,
+      weight_var = "SW_total_trunc",
+      visit_df = VISIT_DF,
+      corstr = "independence",
+      include_dose_time_interaction = INCLUDE_DOSE_TIME_INTERACTION
+    )
+  }
+)
+msm_models <- get_success_results(msm_runs)
+msm_coef_tabs <- purrr::map(msm_models, make_gee_coef_table)
+
+################################################################################
+# Predictions and placebo comparisons
+################################################################################
+
+get_prediction_dose_history_levels <- function(model) {
+  model_dat <- attr(model, "model_data")
+  factor_vars <- c("dose_lag1_f", "dose_lag2_f", "dose_lag3_f")
+  dose_history_levels <- unique(unlist(lapply(factor_vars, function(v) {
+    if (v %in% names(model_dat)) as.numeric(as.character(levels(model_dat[[v]]))) else numeric(0)
+  })))
+  sort(dose_history_levels[!is.na(dose_history_levels)])
+}
+
+get_strategy_doses_for_arm <- function(model) {
+  model_dat <- attr(model, "model_data")
+
+  if ("dose_f" %in% names(model_dat)) {
+    available_doses <- model_dat$dose_f |>
+      droplevels() |>
+      levels() |>
+      as.numeric() |>
+      sort()
+  } else {
+    available_doses <- model_dat$dose_lag1_f |>
+      droplevels() |>
+      levels() |>
+      as.numeric() |>
+      sort()
+  }
+
+  available_doses <- available_doses[!is.na(available_doses) & available_doses > 0]
+
+  if (!is.null(STRATEGY_DOSES)) {
+    available_doses <- intersect(available_doses, STRATEGY_DOSES)
+  }
+
+  available_doses
+}
+
+predict_gee_ci <- function(model, newdata) {
+  beta <- coef(model)
+  V <- model$geese$vbeta
+  dimnames(V) <- list(names(beta), names(beta))
+  Terms <- stats::delete.response(stats::terms(model))
+
+  needed_vars <- intersect(all.vars(Terms), names(newdata))
+  bad_rows <- !stats::complete.cases(newdata[, needed_vars, drop = FALSE])
+  if (any(bad_rows)) stop("Prediction data contain missing values in model variables.")
+
+  X <- stats::model.matrix(Terms, newdata, contrasts.arg = model$contrasts, xlev = model$xlevels)
+  missing_cols <- setdiff(names(beta), colnames(X))
+  if (length(missing_cols) > 0) {
+    X <- cbind(X, matrix(0, nrow = nrow(X), ncol = length(missing_cols), dimnames = list(NULL, missing_cols)))
+  }
+  X <- X[, names(beta), drop = FALSE]
+  pred <- as.numeric(X %*% beta)
+  se <- sqrt(diag(X %*% V %*% t(X)))
+
+  newdata |>
+    dplyr::mutate(
+      pred_delta_outcome = pred,
+      se = se,
+      lower_95 = pred_delta_outcome - qnorm(0.975) * se,
+      upper_95 = pred_delta_outcome + qnorm(0.975) * se
+    )
+}
+
+make_prediction_results_one_arm <- function(model, arm_name) {
+  model_dat <- attr(model, "model_data")
+  trial_this_arm <- unique(as.character(model_dat$trial_name))[1]
+  visits <- 1:MSM_MAX_VISIT
+  mean_outcome_0 <- mean(model_dat$outcome_0, na.rm = TRUE)
+  strategy_doses <- get_strategy_doses_for_arm(model)
+
+  if (length(strategy_doses) < 2) stop("Fewer than 2 strategy doses available for ", arm_name)
+
+  dose_history_levels <- get_prediction_dose_history_levels(model)
+
+  strategy_dat <- dplyr::bind_rows(lapply(strategy_doses, function(dose_value) {
+    baseline_dose_this_arm <- if (is.null(BASELINE_DOSE_FOR_PREDICTIONS)) {
+      dose_value
+    } else if (BASELINE_DOSE_FOR_PREDICTIONS %in% dose_history_levels) {
+      BASELINE_DOSE_FOR_PREDICTIONS
+    } else {
+      dose_value
+    }
+
+    make_strategy_data(
+      strategy_dose = dose_value,
+      visits = visits,
+      outcome_0_value = mean_outcome_0,
+      baseline_dose = baseline_dose_this_arm,
+      dose_history_levels = dose_history_levels
+    )
+  }))
+
+  factor_vars <- c("dose_lag1_f", "dose_lag2_f", "dose_lag3_f")
+  for (v in factor_vars) {
+    if (v %in% names(strategy_dat) && v %in% names(model_dat)) {
+      strategy_dat[[v]] <- factor(as.character(strategy_dat[[v]]), levels = levels(model_dat[[v]]))
+    }
+  }
+
+  strategy_dat <- predict_gee_ci(model = model, newdata = strategy_dat)
+
+  strategy_dat <- strategy_dat |>
+    dplyr::mutate(arm_name = arm_name, trial_name = trial_this_arm) |>
+    dplyr::mutate(strategy_dose_num = as.numeric(gsub("[^0-9.]", "", as.character(strategy)))) |>
+    dplyr::arrange(strategy_dose_num, visit) |>
+    dplyr::mutate(strategy = factor(strategy, levels = unique(strategy[order(strategy_dose_num)])))
+
+  placebo_dat <- tibble::tibble(
+    trial_name = trial_this_arm,
+    visit = visits
+  ) |>
+    dplyr::left_join(
+      placebo_observed_by_trial |>
+        dplyr::filter(trial_name == trial_this_arm),
+      by = c("trial_name", "visit")
+    )
+
+  placebo_point_dat <- placebo_dat |>
+    dplyr::filter(!is.na(placebo_mean_delta))
+
+  placebo_ribbon_dat <- placebo_dat |>
+    dplyr::filter(!is.na(placebo_lower_95), !is.na(placebo_upper_95))
+
+  n_dat <- model_dat |>
+    dplyr::filter(visit %in% visits) |>
+    dplyr::group_by(visit) |>
+    dplyr::summarise(
+      active_n_patients = dplyr::n_distinct(pid),
+      active_n_visit_rows = dplyr::n(),
+      .groups = "drop"
+    )
+
+  y_n <- -8.5
+
+  strategy_plot <- ggplot2::ggplot(
+    strategy_dat,
+    ggplot2::aes(
+      x = visit,
+      y = pred_delta_outcome,
+      group = strategy,
+      color = strategy,
+      linetype = strategy,
+      shape = strategy
+    )
+  ) +
+    ggplot2::geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4, color = "grey60") +
+    ggplot2::geom_ribbon(
+      data = placebo_ribbon_dat,
+      ggplot2::aes(x = visit, ymin = placebo_lower_95, ymax = placebo_upper_95),
+      inherit.aes = FALSE,
+      fill = "grey70",
+      alpha = 0.30,
+      na.rm = TRUE
+    ) +
+    ggplot2::geom_ribbon(
+      ggplot2::aes(ymin = lower_95, ymax = upper_95, fill = strategy),
+      alpha = 0.12,
+      color = NA,
+      show.legend = FALSE
+    ) +
+    ggplot2::geom_line(linewidth = 1) +
+    ggplot2::geom_point(size = 2) +
+    ggplot2::geom_line(
+      data = placebo_point_dat,
+      ggplot2::aes(x = visit, y = placebo_mean_delta, group = 1),
+      inherit.aes = FALSE,
+      color = "black",
+      linewidth = 1,
+      linetype = "longdash",
+      na.rm = TRUE
+    ) +
+    ggplot2::geom_point(
+      data = placebo_point_dat,
+      ggplot2::aes(x = visit, y = placebo_mean_delta),
+      inherit.aes = FALSE,
+      color = "black",
+      shape = 17,
+      size = 2.5,
+      na.rm = TRUE
+    ) +
+    ggplot2::geom_text(
+      data = n_dat,
+      ggplot2::aes(x = visit, y = y_n, label = active_n_patients),
+      inherit.aes = FALSE,
+      size = 3
+    ) +
+    ggplot2::annotate("text", x = min(n_dat$visit) - 0.35, y = y_n, label = "n=", hjust = 1, size = 3) +
+    ggplot2::scale_x_continuous(breaks = visits) +
+    ggplot2::scale_y_continuous(breaks = PREDICTION_Y_BREAKS) +
+    ggplot2::labs(
+      x = "Weeks from randomization",
+      y = "Predicted HAMD improvement from baseline",
+      color = "Dose strategy",
+      linetype = "Dose strategy",
+      shape = "Dose strategy",
+      title = arm_name
+    ) +
+    ggplot2::coord_cartesian(ylim = PREDICTION_Y_LIMITS, clip = "off") +
+    ggplot2::theme_classic(base_size = 12) +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(face = "bold"),
+      plot.margin = ggplot2::margin(10, 10, 45, 45),
+      panel.grid.major.y = ggplot2::element_line(color = "grey90", linewidth = 0.3),
+      panel.grid.major.x = ggplot2::element_blank(),
+      legend.position = c(0.03, 0.97),
+      legend.justification = c(0, 1),
+      legend.background = ggplot2::element_rect(fill = "white", colour = "black"),
+      legend.key = ggplot2::element_rect(fill = "white", colour = NA)
+    )
+
+  list(
+    arm_name = arm_name,
+    strategy_doses = strategy_doses,
+    dose_history_levels = dose_history_levels,
+    strategy_dat = strategy_dat,
+    n_dat = n_dat,
+    plot = strategy_plot
+  )
+}
+
+prediction_runs <- safe_imap(
+  msm_models,
+  function(model, arm_name) make_prediction_results_one_arm(model = model, arm_name = arm_name)
+)
+prediction_results <- get_success_results(prediction_runs)
+strategy_prediction_data <- purrr::map(prediction_results, "strategy_dat")
+strategy_prediction_plots <- purrr::map(prediction_results, "plot")
+strategy_prediction_grid <- make_plot_grid(strategy_prediction_plots, ncol = 4)
+
+make_dose_vs_placebo_table <- function(
+    prediction_results,
+    placebo_observed_by_trial,
+    placebo_counts_by_trial = NULL,
+    max_visit = 8,
+    weight_model = "Ordinal IPTW"
+) {
+  if (is.null(placebo_counts_by_trial)) {
+    placebo_counts_by_trial <- placebo_observed_by_trial |>
+      dplyr::transmute(
+        trial_name,
+        visit,
+        placebo_n_patients = n_placebo,
+        placebo_n_visit_rows = n_placebo
+      )
+  }
+
+  active_counts_by_arm <- purrr::imap_dfr(
+    prediction_results,
+    function(res, arm_name) {
+      n_dat <- res$n_dat
+
+      if ("n" %in% names(n_dat) && !"active_n_patients" %in% names(n_dat)) {
+        n_dat <- n_dat |>
+          dplyr::mutate(active_n_patients = n)
+      }
+
+      if (!"active_n_visit_rows" %in% names(n_dat)) {
+        n_dat <- n_dat |>
+          dplyr::mutate(active_n_visit_rows = active_n_patients)
+      }
+
+      n_dat |>
+        dplyr::transmute(
+          arm_name = arm_name,
+          visit,
+          active_n_patients,
+          active_n_visit_rows
+        )
+    }
+  )
+
+  placebo_for_join <- placebo_observed_by_trial |>
+    dplyr::select(
+      trial_name,
+      visit,
+      n_placebo,
+      placebo_mean_delta,
+      placebo_se_delta,
+      placebo_lower_95,
+      placebo_upper_95
+    ) |>
+    dplyr::left_join(placebo_counts_by_trial, by = c("trial_name", "visit")) |>
+    dplyr::mutate(
+      placebo_n_patients = dplyr::coalesce(placebo_n_patients, n_placebo),
+      placebo_n_visit_rows = dplyr::coalesce(placebo_n_visit_rows, n_placebo)
+    )
+
+  purrr::imap_dfr(
+    prediction_results,
+    function(res, arm_name) {
+      pred_dat <- res$strategy_dat |>
+        dplyr::filter(visit >= 1, visit <= max_visit)
+
+      if (!"trial_name" %in% names(pred_dat)) {
+        pred_dat <- pred_dat |> dplyr::mutate(trial_name = sub("_[^_]+$", "", arm_name))
+      }
+
+      if (!"strategy_dose" %in% names(pred_dat)) {
+        if ("strategy_dose_num" %in% names(pred_dat)) {
+          pred_dat <- pred_dat |> dplyr::mutate(strategy_dose = strategy_dose_num)
+        } else {
+          pred_dat <- pred_dat |>
+            dplyr::mutate(strategy_dose = as.numeric(gsub("[^0-9.]", "", as.character(strategy))))
+        }
+      }
+
+      pred_dat |>
+        dplyr::left_join(placebo_for_join, by = c("trial_name", "visit")) |>
+        dplyr::left_join(active_counts_by_arm, by = c("arm_name", "visit")) |>
+        dplyr::mutate(
+          dose_vs_placebo_difference = pred_delta_outcome - placebo_mean_delta,
+          SE = sqrt(se^2 + placebo_se_delta^2),
+          lower_95 = dose_vs_placebo_difference - stats::qnorm(0.975) * SE,
+          upper_95 = dose_vs_placebo_difference + stats::qnorm(0.975) * SE
+        ) |>
+        dplyr::transmute(
+          weight_model = weight_model,
+          arm_name = arm_name,
+          trial_name = trial_name,
+          week = visit,
+          dose_strategy = as.character(strategy),
+          strategy_dose = strategy_dose,
+          active_n_patients = active_n_patients,
+          active_n_visit_rows = active_n_visit_rows,
+          placebo_n_patients = placebo_n_patients,
+          placebo_n_visit_rows = placebo_n_visit_rows,
+          predicted_active_improvement = pred_delta_outcome,
+          SE_active_prediction = se,
+          observed_placebo_improvement = placebo_mean_delta,
+          SE_observed_placebo = placebo_se_delta,
+          dose_vs_placebo_difference = dose_vs_placebo_difference,
+          SE = SE,
+          lower_95 = lower_95,
+          upper_95 = upper_95
+        )
+    }
+  ) |>
+    dplyr::arrange(trial_name, arm_name, strategy_dose, week)
+}
+
+dose_vs_placebo_predictions_all <- make_dose_vs_placebo_table(
+  prediction_results = prediction_results,
+  placebo_observed_by_trial = placebo_observed_by_trial,
+  placebo_counts_by_trial = placebo_counts_by_trial,
+  max_visit = TABLE_MAX_VISIT,
+  weight_model = "Ordinal IPTW"
+)
+
+gee_and_placebo_means_all <- make_gee_and_placebo_mean_table(
+  prediction_results = prediction_results,
+  placebo_observed_by_trial = placebo_observed_by_trial,
+  placebo_counts_by_trial = placebo_counts_by_trial,
+  max_visit = TABLE_MAX_VISIT,
+  weight_model = "Ordinal IPTW",
+  repeat_placebo_by_active_arm = TRUE
+)
+
+################################################################################
+# Multinomial sensitivity
+################################################################################
+
+if (isTRUE(RUN_MULTINOMIAL_SENSITIVITY)) {
+  multinom_denominator_runs <- safe_imap(
+    analysis_arms_model,
+    function(dat, arm_name) {
+      fit_iptw_multinom_denominator_model(data = dat, visit_df = VISIT_DF, ref_dose = MULTINOMIAL_REF_DOSE)
+    }
+  )
+  multinom_denominator_models <- get_success_results(multinom_denominator_runs)
+  multinom_denominator_coef_tabs <- purrr::map(multinom_denominator_models, make_multinom_coef_table)
+
+  multinom_dose_model_profile_runs <- safe_imap(
+    multinom_denominator_models,
+    function(model, arm_name) {
+      previous_dose_this_arm <- get_dose_model_profile_previous_dose(
+        data = analysis_arms_model[[arm_name]],
+        arm_name = arm_name
+      )
+
+      plot_dat <- make_dose_model_profile_data(
+        model = model,
+        data = analysis_arms_model[[arm_name]],
+        previous_dose = previous_dose_this_arm,
+        side_effect_value = DOSE_MODEL_PROFILE_SIDE_EFFECTS,
+        visits = DOSE_MODEL_PROFILE_VISITS
+      )
+
+      make_dose_model_profile_plot(plot_dat, paste0(arm_name, " - multinomial IPTW"))
+    }
+  )
+  multinom_dose_model_profile_plots <- get_success_results(multinom_dose_model_profile_runs)
+  multinom_dose_model_profile_grid <- make_plot_grid(multinom_dose_model_profile_plots, ncol = 4)
+
+  multinom_numerator_runs <- safe_imap(
+    analysis_arms_model,
+    function(dat, arm_name) {
+      fit_iptw_multinom_numerator_model(data = dat, visit_df = VISIT_DF, ref_dose = MULTINOMIAL_REF_DOSE)
+    }
+  )
+  multinom_numerator_models <- get_success_results(multinom_numerator_runs)
+  multinom_numerator_coef_tabs <- purrr::map(multinom_numerator_models, make_multinom_coef_table)
+
+  multinom_common_arms <- Reduce(
+    intersect,
+    list(names(analysis_arms_model), names(multinom_denominator_models), names(multinom_numerator_models), names(analysis_arms_ipdcw))
+  )
+
+  multinom_weight_runs <- safe_imap(
+    analysis_arms_ipdcw[multinom_common_arms],
+    function(dat, arm_name) {
+      add_iptw_treatment_weights_multinom(
+        data = dat,
+        denominator_model = multinom_denominator_models[[arm_name]],
+        numerator_model = multinom_numerator_models[[arm_name]]
+      ) |>
+        add_total_weights_multinom() |>
+        truncate_total_weights_multinom(lower = TRUNCATION[1], upper = TRUNCATION[2])
+    }
+  )
+  analysis_arms_multinom_weighted <- get_success_results(multinom_weight_runs)
+  multinom_weight_summaries <- purrr::map(analysis_arms_multinom_weighted, summarise_iptw_multinom_treatment_weights)
+  multinom_total_weight_summaries <- purrr::map(analysis_arms_multinom_weighted, summarise_total_multinom_weights)
+
+  multinom_msm_runs <- safe_imap(
+    analysis_arms_multinom_weighted,
+    function(dat, arm_name) {
+      fit_weighted_msm(
+        data = dat,
+        weight_var = "SW_total_multinom_trunc",
+        visit_df = VISIT_DF,
+        corstr = "independence",
+        include_dose_time_interaction = INCLUDE_DOSE_TIME_INTERACTION
+      )
+    }
+  )
+  multinom_msm_models <- get_success_results(multinom_msm_runs)
+  multinom_msm_coef_tabs <- purrr::map(multinom_msm_models, make_gee_coef_table)
+
+  multinom_prediction_runs <- safe_imap(
+    multinom_msm_models,
+    function(model, arm_name) make_prediction_results_one_arm(model = model, arm_name = arm_name)
+  )
+  multinom_prediction_results <- get_success_results(multinom_prediction_runs)
+  multinom_strategy_prediction_plots <- purrr::imap(
+    multinom_prediction_results,
+    function(res, arm_name) res$plot + ggplot2::labs(title = paste0(arm_name, " - multinomial IPTW"))
+  )
+  multinom_strategy_prediction_grid <- make_plot_grid(multinom_strategy_prediction_plots, ncol = 4)
+
+  multinom_dose_vs_placebo_predictions_all <- make_dose_vs_placebo_table(
+    prediction_results = multinom_prediction_results,
+    placebo_observed_by_trial = placebo_observed_by_trial,
+    placebo_counts_by_trial = placebo_counts_by_trial,
+    max_visit = TABLE_MAX_VISIT,
+    weight_model = "Multinomial IPTW"
+  )
+
+  compare_ordinal_vs_multinom_placebo <- dplyr::bind_rows(
+    dose_vs_placebo_predictions_all,
+    multinom_dose_vs_placebo_predictions_all
+  )
+
+  multinom_gee_and_placebo_means_all <- make_gee_and_placebo_mean_table(
+    prediction_results = multinom_prediction_results,
+    placebo_observed_by_trial = placebo_observed_by_trial,
+    placebo_counts_by_trial = placebo_counts_by_trial,
+    max_visit = TABLE_MAX_VISIT,
+    weight_model = "Multinomial IPTW",
+    repeat_placebo_by_active_arm = TRUE
+  )
+
+  gee_and_placebo_means_compare <- dplyr::bind_rows(
+    gee_and_placebo_means_all,
+    multinom_gee_and_placebo_means_all
+  )
+}
+```
+
+
+## Clinical outcome, safety measure, time-varying confounders, and dataset
+
+The clinical outcome of the included study is the Hamilton Depression Rating Scale (HAMD) score, denoted by \(Y_{it}\), measured for patient \(i\) at visit \(t\). The baseline HAMD score was denoted by \(Y_{i0}\). Treatment response was expressed as improvement from baseline: 
+```math
+\Delta Y_{it} = Y_{i0} - Y_{it}
+```
+Thus, positive values of \(ΔY_{it}\) indicate improvement. Safety was summarized at each visit using a side-effect score \(S_{it}\), measured on a 0–10 scale, where higher values indicate a greater number of side effects reported by the patient. 
+
+In this setting, we distinguished between previous dose history and time-varying confounder history. Previous dose \(d_{it-1}\) was treated as part of the treatment process, because it defines the dose trajectory and is a strong predictor of the next assigned dose. <u>Time-varying confounders</u> were defined as post-baseline clinical variables, other than dose itself, that may be affected by previous dose and may also influence subsequent dose assignment, future outcomes, or discontinuation. Specifically, efficacy (HAMD improvement) \(ΔY_{it}\), and side-effect severity \(S_{it}\) were treated as time-varying confounders. 
+
+The dataset includes `r nrow(arm_summary)` active trial-by-treatment arms. Arm-level patient counts, patient-visit counts, and observed dose levels are shown below. Summary statistics for efficacy and side-effects are shown below.
+
+```{r summary-efficacy-safety, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::kable(
+  arm_summary,
+  caption = "<small><em>Arm-level analysis summary</em></small>"
+)
+```
+
+
+Side-effect values were simulated and intentionally generated to have a weak negative association with dose.
+```{r side-effect-grid, echo=FALSE, message=FALSE, warning=FALSE, fig.width=16, fig.height=8}
+side_effect_grid
+```
+
+
+
+
+### Empirical support and positivity diagnostics
+
+Before interpreting the weighted MSM, we assessed empirical support for the observed dose process. Positivity requires that, within the histories represented in the analysis, the dose strategies being compared have adequate observed support. In practice, very sparse dose levels, empty dose-transition cells, or near-deterministic dose assignment can lead to unstable treatment weights and unreliable extrapolation. The following grid plots summarize the observed dose distribution by visit, previous-to-current dose transitions, and sparse-dose grouping for each active arm.
+
+```{r dose-by-visit-grid, echo=FALSE, message=FALSE, warning=FALSE, fig.width=18, fig.height=10}
+dose_by_visit_grid
+```
+
+```{r dose-transition-grid, echo=FALSE, message=FALSE, warning=FALSE, fig.width=20, fig.height=14}
+dose_transition_grid
+```
+
+```{r dose-grouping-grid, echo=FALSE, message=FALSE, warning=FALSE, fig.width=18, fig.height=10}
+dose_grouping_grid
+```
+
+```{r arm-modelability, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::kable(
+  arm_modelability,
+  caption = "<small><em>Arm-level support check used to identify modelable active arms</em></small>"
+)
+```
+
+
+## Notation
+
+
+<table class="notation-table">
+<thead>
+<tr>
+<th>Notation</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+
+<tr>
+<td>\(i = 1,\ldots,n\)</td>
+<td>Patient index.</td>
+</tr>
+
+<tr>
+<td>\(t = 0,1,\ldots,T_i\)</td>
+<td>Ordered visit index for patient \(i\); \(t = 0\) denotes baseline.</td>
+</tr>
+
+<tr>
+<td>\(\mathrm{week}_{it}\)</td>
+<td>Actual study week of visit \(t\) for patient \(i\).</td>
+</tr>
+
+<tr>
+<td>\(Y_{it}\)</td>
+<td>HAMD score for patient \(i\) at visit \(t\).</td>
+</tr>
+
+<tr>
+<td>\(\Delta Y_{it} = Y_{i0} - Y_{it}\)</td>
+<td>HAMD improvement from baseline at visit \(t\). Positive values indicate improvement.</td>
+</tr>
+
+<tr>
+<td>\(S_{it}\)</td>
+<td>Side-effect score for patient \(i\) at visit \(t\), measured on a 0–10 scale.</td>
+</tr>
+
+<tr>
+<td>\(d_{it}\)</td>
+<td>Observed dose actually assigned to patient \(i\) at visit \(t\).</td>
+</tr>
+
+<tr>
+<td>\(H_{it}\)</td>
+<td>Full observed history used in the denominator dose model.</td>
+</tr>
+
+<tr>
+<td>\(H_{it}^{*}\)</td>
+<td>Reduced observed history used in the numerator dose model.</td>
+</tr>
+
+<tr>
+<td>\(R_{it}\)</td>
+<td>Indicator for remaining observed at the next visit;<br>
+\(R_{it} = 1\) if patient \(i\) remains observed at visit \(t\), and 0 otherwise.</td>
+</tr>
+
+<tr>
+<td>\(H_{it}^{C}\)</td>
+<td>Full observed history used in the denominator censoring model.</td>
+</tr>
+
+<tr>
+<td>\(H_{it}^{C*}\)</td>
+<td>Reduced observed history used in the numerator censoring model.</td>
+</tr>
+
+<tr>
+<td>\(\hat{p}_{it}^{D}\)</td>
+<td>Fitted denominator probability of the observed dose.</td>
+</tr>
+
+<tr>
+<td>\(\hat{q}_{it}^{D}\)</td>
+<td>Fitted numerator probability of the observed dose.</td>
+</tr>
+
+<tr>
+<td>\(\mathrm{SW}_{it}^{D}\)</td>
+<td>Visit-specific stabilized dose weight.</td>
+</tr>
+
+<tr>
+<td>\(\mathrm{cSW}_{it}^{D}\)</td>
+<td>Cumulative stabilized dose weight through visit \(t\).</td>
+</tr>
+
+<tr>
+<td>\(\hat{p}_{it}^{C}\)</td>
+<td>Fitted denominator probability of remaining observed.</td>
+</tr>
+
+<tr>
+<td>\(\hat{q}_{it}^{C}\)</td>
+<td>Fitted numerator probability of remaining observed.</td>
+</tr>
+
+<tr>
+<td>\(\mathrm{SW}_{it}^{C}\)</td>
+<td>Visit-specific stabilized censoring weight for patient \(i\).</td>
+</tr>
+
+<tr>
+<td>\(\mathrm{cSW}_{it}^{C}\)</td>
+<td>Cumulative stabilized censoring weight through visit \(t\) for patient \(i\).</td>
+</tr>
+
+<tr>
+<td>\(\mathrm{SW}_{it}^{\mathrm{total}}\)</td>
+<td>Final stabilized weight for patient \(i\) at visit \(t\).</td>
+</tr>
+
+</tbody>
+</table>
+
+## Step 1 - Inverse probability of dose and censoring weighting (IPDCW)
+
+### Inverse probability of dose weights (IPTW)
+
+The first step for estimating marginal structural models (MSMs) was to construct stabilized inverse probability of dose weights that adjust for time-varying confounding affected by prior dose, following Robins, Hernán and Brumback (2000). 
+
+The **denominator model** represents the full dose assignment mechanism and estimates the probability of receiving the observed dose conditional on past dose and the full history of time-varying covariates. The **numerator model** is a simplified version of the dose assignment mechanism and includes only time and past dose history. Its purpose is to stabilize the weights and reduce variance without reintroducing confounding. The stabilized weight at visit \(t\) is defined as the ratio of the probability of receiving the observed dose estimated from the numerator model to the probability from the denominator model.
+
+#### Dose weight denominator
+
+The **denominator model** the dose weight was fitted at the patient-visit level using ordinal logistic regression, treating dose as an ordered categorical variable (20<30<40<50). For each threshold d∈{20,30,40}, we modelled the cumulative probability of receiving a dose less than or equal to d.
+
+```math
+\begin{aligned}
+\mathrm{logit}
+\left\{
+\Pr(D_{it} \le c \mid H_{it})
+\right\}
+&=
+\log
+\left[
+\frac{
+\Pr(D_{it} \le c \mid H_{it})
+}{
+1 - \Pr(D_{it} \le c \mid H_{it})
+}
+\right] \\
+&=
+\alpha_{0c}
++ \alpha_1 f(\mathrm{week}_{it})
++ \alpha_2 \Delta Y_{it}
++ \alpha_3 S_{it}
++ \alpha_4 d_{it-1} \\
+&\quad
++ \alpha_5 d_{it-1}\Delta Y_{it}
++ \alpha_6 d_{it-1}S_{it}
++ \alpha_7 Y_{i0}.
+\end{aligned}
+```
+
+where
+
+```math
+H_{it}
+=
+\left\{
+\mathrm{week}_{it},
+\Delta Y_{it},
+S_{it},
+d_{it-1},
+d_{it-1}S_{it},
+d_{it-1}\Delta Y_{it},
+Y_{i0}
+\right\}.
+```
+is the observed history available for patient \(i\) before the dose assignment at visit \(t\).
+The term $`f(\mathrm{week}_{it})`$ denotes a restricted cubic spline function of actual study week, specified with three knots at the 10th, 50th, and 90th percentiles of the observed visit distribution. In the ordinal dose-assignment model, the current dose \(D_{it}\) was treated as an ordered categorical variable, and previous dose-history was represented categorically through \(d_{it-1}\). We included interactions between previous dose, HAMD improvement, and side-effects in the denominator dose model. This allowed the dose-assignment model to reflect that the same clinical information may lead to different dose decisions depending on the dose the patient was already taking. For example, poor improvement may lead to dose escalation for a patient on a low dose, whereas side effects may lead to dose reduction for a patient already on a high dose.
+
+```{r iptw-denominator-coef-tabs, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+print_kable_list(
+  iptw_denominator_coef_tabs,
+  caption = "Coefficient table for the dose weight denominator",
+  digits = 3
+)
+```
+
+
+A **positive coefficient** means that higher values of that variable are associated with a higher probability of receiving a higher dose, whereas a **negative coefficient** means that higher values of that variable are associated with a higher probability of receiving a lower dose.
+After fitting the ordinal model, predicted probabilities were obtained for each dose category (see Appendix). The denominator probability used in the dose weight was the fitted probability of the dose actually received:
+
+```math
+\hat{p}_{it}^{D}
+=
+\widehat{\Pr}\!\left(D_{it} = d_{it} \mid H_{it}\right).
+```
+
+```{r iptw-dose-model-profile-grid, echo=FALSE, message=FALSE, warning=FALSE, fig.width=20, fig.height=14}
+iptw_dose_model_profile_grid
+```
+
+```{r iptw-dose-model-observed-grid, echo=FALSE, message=FALSE, warning=FALSE, fig.width=20, fig.height=10}
+iptw_dose_model_grid
+```
+
+
+
+
+#### Dose weight numerator 
+
+The **numerator model** is like the denominator model, except that all potential time-dependent confounders were excluded, namely improvement from baseline and side-effect severity.
+Let
+
+
+```math
+H_{it}^{*}
+=
+\left\{
+\mathrm{week}_{it},
+d_{it-1},
+Y_{i0}
+\right\}
+```
+
+denotes the reduced observed history.
+
+```math
+\begin{aligned}
+\mathrm{logit}
+\left\{
+\Pr\left(D_{it} \le c \mid H_{it}^{*}\right)
+\right\}
+&=
+\log
+\left[
+\frac{
+\Pr\left(D_{it} \le c \mid H_{it}^{*}\right)
+}{
+1 - \Pr\left(D_{it} \le c \mid H_{it}^{*}\right)
+}
+\right] \\
+&=
+\beta_{0c}
++ \beta_{1} f(\mathrm{week}_{it})
++ \beta_{2} d_{it-1}
++ \beta_{3} Y_{i0}.
+\end{aligned}
+```
+
+```{r iptw-numerator-coef-tabs, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+print_kable_list(
+  iptw_numerator_coef_tabs,
+  caption = "Coefficient table for the dose weight numerator",
+  digits = 3
+)
+```
+
+
+The fitted probability corresponding to the observed dose \(d_{it}\) was extracted as
+
+
+```math
+\hat{q}_{it}^{D}
+=
+\widehat{\Pr}\left(D_{it} = d_{it} \mid H_{it}^{*}\right).
+```
+
+#### Stabilized dose weights
+
+The visit-specific stabilized dose weight was then calculated as
+
+```math
+\mathrm{SW}_{it}^{D}
+=
+\frac{\hat{q}_{it}^{D}}{\hat{p}_{it}^{D}}.
+```
+The cumulative stabilized dose weight through visit \(t\) was obtained by multiplying the visit-specific weights from the first post-baseline visit up to the current visit:
+
+```math
+\mathrm{cSW}_{it}^{D}
+=
+\prod_{s=1}^{t} \mathrm{SW}_{is}^{D}.
+```
+```{r iptw-treatment-weight-summary-clean, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::kable(
+  stack_named_tables(iptw_weight_summaries),
+  digits = 3,
+  caption = "<small><em>Summary of visit-specific and cumulative stabilized dose weights</em></small>"
+)
+```
+
+
+Note: The ordinal dose model assumes proportional odds, meaning that the covariates have a common effect across the cumulative dose-category thresholds. In other words, covariates shift the probability toward higher or lower dose categories similarly across cut-points. This assumption will be examined in sensitivity analysis by comparing the results with those from a multinomial dose model; see Appendix.
+
+
+### Inverse probability of censoring weights (IPCW)
+
+#### Censoring weight denominator
+
+The **denominator model** described the dropout process conditional on the observed history. It included current dose, current and previous HAMD improvement, current and previous side-effect scores, and baseline covariates:
+
+```math
+\begin{aligned}
+\mathrm{logit}
+\left\{
+\Pr\left(R_{it+1} = 1 \mid H_{it}^{C}\right)
+\right\}
+&=
+\gamma_{0}
++ \gamma_{1} f(\mathrm{week}_{it})
++ \gamma_{2} d_{it}
++ \gamma_{3} \Delta Y_{it}
++ \gamma_{4} \Delta Y_{it-1} \\
+&\quad
++ \gamma_{5} S_{it}
++ \gamma_{6} S_{it-1}
++ \gamma_{7} Y_{i0}
++ \gamma_{8} \mathrm{age}_{i}
++ \gamma_{9} \mathrm{sex}_{i}.
+\end{aligned}
+```
+
+where
+
+```math
+H_{it}^{C}
+=
+\left\{
+\mathrm{week}_{it},
+d_{it},
+\Delta Y_{it},
+\Delta Y_{it-1},
+S_{it},
+S_{it-1},
+Y_{i0},
+\mathrm{age}_{i},
+\mathrm{sex}_{i}
+\right\}.
+```
+```{r ipcw_denominator_coef_tabs, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+print_kable_list(
+  ipcw_denominator_coef_tabs,
+  caption = "Coefficient table for the censoring weight denominator",
+  digits = 3
+)
+```
+
+
+The denominator predicted probability is
+
+
+```math
+\hat{p}_{it}^{C}
+=
+\widehat{\Pr}
+\left(
+R_{it+1} = 1 \mid H_{it}^{C}
+\right).
+```
+
+
+#### Censoring weight numerator 
+
+The **numerator model** was used only to stabilize the censoring weights. It excluded the time-varying confounders, while retaining visit, current dose, and baseline covariates:
+
+```math
+\begin{aligned}
+\mathrm{logit}
+\left\{
+\Pr\left(R_{it+1} = 1 \mid H_{it}^{C*}\right)
+\right\}
+&=
+\delta_{0}
++ \delta_{1} \mathrm{week}_{it}
++ \delta_{2} d_{it}
++ \delta_{3} Y_{i0}
++ \delta_{4} \mathrm{age}_{i}
++ \delta_{5} \mathrm{sex}_{i}.
+\end{aligned}
+```
+where
+
+```math
+H_{it}^{C*}
+=
+\left\{
+\mathrm{week}_{it},
+d_{it},
+Y_{i0},
+\mathrm{age}_{i},
+\mathrm{sex}_{i}
+\right\}.
+```
+
+```{r ipcw_numerator_coef_tabs, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+print_kable_list(
+  ipcw_numerator_coef_tabs,
+  caption = "Coefficient table for the censoring weight numerator",
+  digits = 3
+)
+```
+
+
+The numerator predicted probability was
+
+
+```math
+\hat{q}_{it}^{C}
+=
+\widehat{\Pr}
+\left(
+R_{it+1} = 1 \mid H_{it}^{C*}
+\right).
+```
+
+#### Stabilized censoring weights
+
+The visit-specific stabilized censoring weight was then calculated as
+```math
+\mathrm{SW}_{it}^{C}
+=
+\frac{\hat{q}_{it}^{C}}{\hat{p}_{it}^{C}}.
+```
+The cumulative stabilized censoring weight through visit \(t\) was obtained by multiplying the visit-specific censoring weights from the first post-baseline interval up to the current visit:
+
+```math
+\mathrm{cSW}_{it}^{C}
+=
+\prod_{s=1}^{t} \mathrm{SW}_{is}^{C}.
+```
+The effective sample size after weighting was calculated using the Kish formula:
+
+```math
+\mathrm{ESS}
+=
+\frac{
+\left(
+\sum_{i,t} \mathrm{SW}_{it}^{\mathrm{total}}
+\right)^2
+}{
+\sum_{i,t}
+\left(
+\mathrm{SW}_{it}^{\mathrm{total}}
+\right)^2
+}.
+```
+```{r ipcw-censoring-weight-summary, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::kable(
+  stack_named_tables(ipcw_weight_summaries),
+  digits = 3,
+  caption = "<small><em>Summary of visit-specific and cumulative stabilized censoring weights</em></small>"
+)
+```
+
+### Total stabilized weights and truncation
+
+The final stabilized weight used in the marginal structural model was obtained by multiplying the cumulative stabilized dose weight and the cumulative stabilized censoring weight for each patient-visit row. This accounts jointly for non-random dose titration and informative censoring up to visit \(t\):
+
+```math
+\mathrm{SW}_{it}^{\mathrm{total}}
+=
+\mathrm{cSW}_{it}^{D}
+\times
+\mathrm{cSW}_{it}^{C}.
+```
+Weight stability was assessed by examining the distribution of the dose, censoring, and total weights, including their mean, standard deviation, selected percentiles, maximum value, and the effective sample size after truncation. The effective sample size after weighting was calculated using the Kish formula:
+```math
+\mathrm{ESS}
+=
+\frac{
+\left(
+\sum_{i,t} \mathrm{SW}_{it}^{\mathrm{total}}
+\right)^2
+}{
+\sum_{i,t}
+\left(
+\mathrm{SW}_{it}^{\mathrm{total}}
+\right)^2
+}.
+```
+The total-weight summary describes the final stabilized weights, \(\mathrm{SW}_{it}^{\mathrm{total}}\), obtained by multiplying the cumulative dose and censoring weights.
+```{r total-weight-summary, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::kable(
+  stack_named_tables(total_weight_summaries),
+  digits = 3,
+  caption = "<small><em>Summary of total stabilized weights</em></small>"
+)
+```
+
+
+To reduce the influence of extreme weights and improve precision, total stabilized weights were truncated at the 1st and 99th percentiles. The distribution of the truncated weights is summarized below.
+
+
+```{r total-truncated-weight-summary, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::kable(
+  stack_named_tables(total_truncated_weight_summaries),
+  digits = 3,
+  caption = "<small><em>Summary of truncated total stabilized weights</em></small>"
+)
+```
+
+
+## Step 2 - Weighted repeated-measures marginal structural model MSM
+
+After estimating the total weights for each patient-visit row, we fitted a weighted repeated-measures marginal structural model to estimate the effect of dose history on HAMD improvement over time. The model was estimated using generalized estimating equations with an identity link and Gaussian working variance. We used an independence working correlation structure and robust sandwich standard errors clustered by patient. The independence structure was used as a working correlation assumption only. Inference was based on the robust variance estimator, which accounts for within-patient correlation in repeated HAMD measurements and provides valid standard errors even if the working correlation structure is misspecified. The final stabilized weights, \(\mathrm{SW}_{it}^{\mathrm{total}}\), were used as observation-level weights.
+
+Following the dose-history structure used by Lipkovich et al., the outcome model included recent dose history. The most recent dose \(d_{it-1}\), the dose one visit earlier \(d_{it-2}\), and the dose two visits earlier \(d_{it-3}\) were represented categorically. A separate 0 category was retained where a lagged dose was not yet available. The average earlier dose, \(\bar{d}_{i<t-3}\), was kept continuous because it can take values that are not actual dose levels, for example 25 or 33.3 mg.
+
+The weighted MSM was specified as
+
+```math
+\begin{aligned}
+\Delta Y_{it}
+&=
+\eta_{0}
++ \eta_{1} f(\mathrm{week}_{it})
++ \eta_{2} Y_{i0}
++ \eta_{3} d_{it-1}
++ \eta_{4} d_{it-2} \\
+&\quad
++ \eta_{5} d_{it-3}
++ \eta_{6} \overline{d}_{i\lt t-3}
++ \eta_{7} Y_{i0} f(\mathrm{week}_{it}) \\ 
+&\quad 
++ \eta_{8}\!\left(d_{it-1}, f(\mathrm{week}_{it})\right)
++ \varepsilon_{it}.
+\end{aligned}
+```
+
+The term $`f(\mathrm{week}_{it})`$ denotes a restricted cubic spline function of actual study week, with three knots at the 10th, 50th, and 90th percentiles of the observed visit distribution. $Y_{i0}$  is the baseline HAMD score. Following the dose-history structure used by Lipkovich et al., the outcome model included recent dose history. The most recent dose $d_{it-1}$, the dose one visit earlier $d_{it-2}$, and the dose two visits earlier $d_{it-3}$ were represented categorically. The average earlier dose, $\bar d_{i<t-3}$, was kept continuous because it can take values that are not actual dose levels, for example 25 or 33.3 mg. A separate 0 category was retained where a lagged dose was not yet available. For example, at the first post-baseline visit, $d_{it-2}$, $d_{it-3}$, and $\bar d_{i<t-3}$ were set to 0 mg. We used interactions between study week and the most recent dose category, allowing the effect of the most recent dose to vary over follow-up, and between baseline HAMD and week to allow patients with different baseline severity to have different improvement trajectories over time.
+
+This model estimates the mean HAMD improvement trajectory under alternative dose histories in the weighted pseudo-population, where dose titration and censoring are no longer driven by the measured clinical history included in the weight models.
+
+
+```{r msm-coef-tabs, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+print_kable_list(
+  msm_coef_tabs,
+  caption = "Weighted marginal structural model for HAMD improvement",
+  digits = 3
+)
+```
+
+
+
+Interpretation:
+If a dose coefficient is positive: then higher previous dose is associated with greater HAMD improvement.
+If a dose coefficient is negative: then higher previous dose is associated with lower HAMD improvement.
+
+## Step 3 - Predictions
+
+After fitting the weighted MSM, we predicted HAMD improvement trajectories under sustained dose strategies, setting the dose-history variables to the values corresponding to each strategy. Predictions were obtained at the mean baseline HAMD score. Pointwise 95% confidence intervals were calculated using the robust sandwich covariance matrix from the fitted GEE. These intervals reflect uncertainty in the fitted MSM coefficients; they do not incorporate additional uncertainty from estimating the treatment and censoring weights unless a full bootstrap is used.
+
+```{r strategy-prediction-grid, echo=FALSE, message=FALSE, warning=FALSE, fig.width=20, fig.height=10}
+strategy_prediction_grid
+```
+
+
+```{r dose-vs-placebo-table, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::kable(
+  dose_vs_placebo_predictions_all,
+  digits = 3,
+  caption = "<small><em>Dose-strategy predictions versus observed placebo by week</em></small>"
+)
+```
+
+```{r gee-and-placebo-means-table, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::kable(
+  gee_and_placebo_means_all,
+  digits = 3,
+  caption = "<small><em>Active GEE/MSM predicted means and observed placebo means by week</em></small>"
+)
+```
+
+
+## References
+
+1. J M Robins, M A Hernán, B Brumback. Marginal structural models and causal inference in epidemiology. Epidemiology. 2000 Sep;11(5):550-60. doi: 10.1097/00001648-200009000-00011.
+2. Ilya Lipkovich, David H Adams, Craig Mallinckrodt, Doug Faries, David Baron, John P Houston. Evaluating dose response from flexible dose clinical trials. BMC Psychiatry. 2008 Jan 7;8:3. doi: 10.1186/1471-244X-8-3.
+
+## Appendix
+
+### Predicted probabilities under the ordinal dose model
+
+In the primary dose-weight model, dose was modeled as an ordered categorical variable with levels $20 < 30 < 40 < 50$. For each cumulative dose threshold $c \in \{20,30,40\}$, the ordinal logistic model was written as
+
+```math
+\log
+\left[
+\frac{
+\Pr(D_{it} \le c \mid H_{it})
+}{
+1 - \Pr(D_{it} \le c \mid H_{it})
+}
+\right]
+=
+\alpha_{0c} + X_{it}\alpha.
+```
+
+Let
+
+```math
+\eta_{it,c} = \alpha_{0c} + X_{it}\alpha.
+```
+
+Then
+
+```math
+\log
+\left[
+\frac{
+\Pr(D_{it} \le c \mid H_{it})
+}{
+1 - \Pr(D_{it} \le c \mid H_{it})
+}
+\right]
+=
+\eta_{it,c}.
+```
+
+Exponentiating both sides gives
+
+```math
+\frac{
+\Pr(D_{it} \le c \mid H_{it})
+}{
+1 - \Pr(D_{it} \le c \mid H_{it})
+}
+=
+\exp(\eta_{it,c}).
+```
+
+Let
+
+```math
+F_c =
+\Pr(D_{it} \le c \mid H_{it}).
+```
+
+Then
+
+```math
+\frac{F_c}{1-F_c}
+=
+\exp(\eta_{it,c}).
+```
+
+Solving for $F_c$ gives
+
+```math
+F_c
+=
+\frac{\exp(\eta_{it,c})}{1+\exp(\eta_{it,c})}
+=
+\frac{1}{1+\exp(-\eta_{it,c})}.
+```
+
+Therefore, the ordinal model gives the cumulative predicted probabilities
+
+```math
+F_{20}
+=
+\Pr(D_{it} \le 20 \mid H_{it}),
+```
+
+```math
+F_{30}
+=
+\Pr(D_{it} \le 30 \mid H_{it}),
+```
+
+and
+
+```math
+F_{40}
+=
+\Pr(D_{it} \le 40 \mid H_{it}).
+```
+
+The predicted probabilities for the individual dose categories are then obtained as
+
+```math
+\Pr(D_{it}=20 \mid H_{it})
+=
+F_{20},
+```
+
+```math
+\Pr(D_{it}=30 \mid H_{it})
+=
+F_{30} - F_{20},
+```
+
+```math
+\Pr(D_{it}=40 \mid H_{it})
+=
+F_{40} - F_{30},
+```
+
+and
+
+```math
+\Pr(D_{it}=50 \mid H_{it})
+=
+1 - F_{40}.
+```
+
+### Alternative multinomial dose model for stabilized dose weights
+
+As a sensitivity analysis to the ordinal dose model, we considered a multinomial logistic regression for the dose-weight models. Unlike the ordinal model, which treats the dose categories as ordered and assumes proportional odds, the multinomial model treats dose as a nominal categorical variable. This allows the associations between patient history and dose assignment to differ across dose levels.
+
+Using 20 mg as the reference category, the denominator multinomial dose model was specified for each non-reference dose $d \in \{30,40,50\}$ as
+
+```math
+\begin{aligned}
+\log
+\left[
+\frac{
+\Pr(D_{it}=d \mid H_{it})
+}{
+\Pr(D_{it}=20 \mid H_{it})
+}
+\right]
+&=
+\alpha_{0d}
++ \alpha_{1d} f(\mathrm{week}_{it})
++ \alpha_{2d} \Delta Y_{it}
++ \alpha_{3d} S_{it}
++ \alpha_{4d} d_{it-1} \\
+&\quad
++ \alpha_{5d} Y_{i0}.
+\end{aligned}
+```
+
+The fitted multinomial model provides predicted probabilities for all dose categories. For each patient-visit row, the **denominator probability** was the fitted probability corresponding to the dose actually received:
+
+```math
+\hat{p}_{it}^{D,\mathrm{mult}}
+=
+\widehat{\Pr}
+\left(
+D_{it}=d_{it}
+\mid
+H_{it}
+\right).
+```
+
+The **numerator dose model** had the same multinomial structure but excluded the time-varying confounders:
+
+```math
+\begin{aligned}
+\log
+\left[
+\frac{
+\Pr(D_{it}=d \mid H_{it}^{*})
+}{
+\Pr(D_{it}=20 \mid H_{it}^{*})
+}
+\right]
+&=
+\beta_{0d}
++ \beta_{1d} f(\mathrm{week}_{it})
++ \beta_{2d} d_{it-1}
++ \beta_{3d} Y_{i0}.
+\end{aligned}
+```
+
+The fitted probability corresponding to the observed dose $d_{it}$ was extracted as
+
+```math
+\hat{q}_{it}^{D,\mathrm{mult}}
+=
+\widehat{\Pr}
+\left(
+D_{it}=d_{it}
+\mid
+H_{it}^{*}
+\right).
+```
+
+The visit-specific and cumulative stabilized dose weights were then constructed analogously to the primary ordinal-model analysis:
+
+```math
+\mathrm{SW}_{it}^{D,\mathrm{mult}}
+=
+\frac{
+\hat{q}_{it}^{D,\mathrm{mult}}
+}{
+\hat{p}_{it}^{D,\mathrm{mult}}
+}.
+```
+
+```math
+\mathrm{cSW}_{it}^{D,\mathrm{mult}}
+=
+\prod_{s=1}^{t}
+\mathrm{SW}_{is}^{D,\mathrm{mult}}.
+```
+
+The multinomial model was used to assess the robustness of the results to relaxing the proportional-odds assumption imposed by the ordinal dose model. Whereas the ordinal model assumes that covariates shift the probability toward higher or lower dose categories similarly across dose thresholds, the multinomial model allows separate covariate effects for each non-reference dose level relative to 20 mg.
+
+#### Predicted probabilities under the multinomial dose model
+
+For a multinomial logit model with $K$ possible dose categories, one category is chosen as the reference. Let category $K$ denote the reference category. For each non-reference category $k = 1,\ldots,K-1$, the model can be written as
+
+```math
+\log
+\left[
+\frac{
+\Pr(Y_i = k \mid X_i)
+}{
+\Pr(Y_i = K \mid X_i)
+}
+\right]
+=
+\beta_k^{\top}X_i.
+```
+
+Exponentiating both sides gives
+
+```math
+\Pr(Y_i = k \mid X_i)
+=
+\Pr(Y_i = K \mid X_i)
+\exp(\beta_k^{\top}X_i),
+\qquad
+k = 1,\ldots,K-1.
+```
+
+Because the category probabilities must sum to one,
+
+```math
+\begin{aligned}
+\Pr(Y_i = K \mid X_i)
+&=
+1 - \sum_{j=1}^{K-1} \Pr(Y_i = j \mid X_i) \\
+&=
+1 - \sum_{j=1}^{K-1}
+\Pr(Y_i = K \mid X_i)\exp(\beta_j^{\top}X_i).
+\end{aligned}
+```
+
+Therefore,
+
+```math
+\begin{aligned}
+\Pr(Y_i = K \mid X_i)
++
+\Pr(Y_i = K \mid X_i)
+\sum_{j=1}^{K-1}\exp(\beta_j^{\top}X_i)
+&=
+1, \\
+\Pr(Y_i = K \mid X_i)
+\left[
+1 + \sum_{j=1}^{K-1}\exp(\beta_j^{\top}X_i)
+\right]
+&=
+1.
+\end{aligned}
+```
+
+Thus, for the reference category,
+
+```math
+\Pr(Y_i = K \mid X_i)
+=
+\frac{
+1
+}{
+1 + \sum_{j=1}^{K-1}\exp(\beta_j^{\top}X_i)
+}.
+```
+
+For each non-reference category $k = 1,\ldots,K-1$, we obtain
+
+```math
+\Pr(Y_i = k \mid X_i)
+=
+\frac{
+\exp(\beta_k^{\top}X_i)
+}{
+1 + \sum_{j=1}^{K-1}\exp(\beta_j^{\top}X_i)
+},
+\qquad
+1 \le k < K.
+```
+
+Thus, the multinomial model estimates log-odds relative to the reference dose category. It also relies on the independence of irrelevant alternatives assumption, meaning that the odds comparing two dose categories are assumed not to depend on the presence or characteristics of the other dose categories.
+
+#### Reasults using multiomial model for the IPTW step
+
+```{r appendix-multinomial-iptw, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+print_kable_list(
+  multinom_denominator_coef_tabs,
+  caption = "Multinomial dose-weight denominator model",
+  digits = 3
+)
+
+print_kable_list(
+  multinom_numerator_coef_tabs,
+  caption = "Multinomial dose-weight numerator model",
+  digits = 3
+)
+
+knitr::kable(
+  stack_named_tables(multinom_weight_summaries),
+  digits = 3,
+  caption = "<small><em>Summary of multinomial stabilized treatment weights</em></small>"
+)
+
+knitr::kable(
+  stack_named_tables(multinom_total_weight_summaries),
+  digits = 3,
+  caption = "<small><em>Summary of truncated total weights using multinomial IPTW</em></small>"
+)
+```
+
+
+```{r appendix-multinomial-msm, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+print_kable_list(
+  multinom_msm_coef_tabs,
+  caption = "Weighted MSM using multinomial IPTW",
+  digits = 3
+)
+```
+
+
+### Predicted trajectories using multinomial IPTW
+
+```{r appendix-multinomial-dose-model-profile-grid, echo=FALSE, message=FALSE, warning=FALSE, fig.width=20, fig.height=14}
+multinom_dose_model_profile_grid
+```
+
+```{r appendix-multinomial-prediction-grid, echo=FALSE, message=FALSE, warning=FALSE, fig.width=20, fig.height=10}
+multinom_strategy_prediction_grid
+```
+
+
+##### Comparison of ordinal and multinomial IPTW results
+
+```{r appendix-ordinal-vs-multinomial-comparison, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::kable(
+  compare_ordinal_vs_multinom_placebo,
+  digits = 3,
+  caption = "<small><em>Comparison of dose-versus-placebo predictions using ordinal versus multinomial treatment weights</em></small>"
+)
+```
+
+
