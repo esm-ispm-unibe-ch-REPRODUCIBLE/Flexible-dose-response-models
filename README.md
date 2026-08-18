@@ -104,9 +104,9 @@ diagnostic plots. All statistical models retain continuous study time.
 
 ![](README_files/figure-gfm/dose-grouping-grid-1.png)<!-- -->
 
-| analysis_name | n_patients | n_treatment_rows | n_dose_levels | min_n_per_dose | dose_levels | modelable |
-|:---|---:|---:|---:|---:|:---|:---|
-| zero_as_dose | 422 | 2308 | 5 | 296 | 0, 20, 30, 40, 50 | TRUE |
+| Number of patients | Number of treatment-decision rows | Number of dose levels | Minimum patient-visits per dose | Observed dose levels (mg) |
+|---:|---:|---:|---:|:---|
+| 422 | 2308 | 5 | 296 | 0, 20, 30, 40, 50 |
 
 <small><em>Support check for the pooled active analysis</em></small>
 
@@ -293,10 +293,11 @@ analysis pools patients from several trials.
 
 #### Dose weight denominator
 
-The primary dose-weight denominator is fitted at the patient-observation
-level using ordinal logistic regression. Dose is an ordered categorical
-variable with levels $0 < 20 < 30 < 40 < 50$ mg. For each cumulative
-threshold $c$, the model is
+The **denominator model** the dose weight was fitted at the
+patient-visit level using ordinal logistic regression, treating dose as
+an ordered categorical variable (0\<20\<30\<40\<50). For each threshold
+d∈{0,20,30,40}, we modelled the cumulative probability of receiving a
+dose less than or equal to d.
 
 ``` math
 \begin{aligned}
@@ -307,7 +308,7 @@ threshold $c$, the model is
 &=
 \alpha_{0c}
 + \alpha_1 f(\mathrm{week}_{it})
-+ \alpha_2 g_i
++ \alpha_2 study_i
 + \alpha_3 \Delta Y_{it}
 + \alpha_4 S_{it}
 + \alpha_5 d_{it-1} \\
@@ -364,8 +365,8 @@ H_{it}
 | 30\|40                                | -0.649 |      0.358 |  -1.814 |   0.070 |
 | 40\|50                                |  0.530 |      0.359 |   1.478 |   0.139 |
 
-<small><em>Coefficient table for the ordinal dose-weight denominator:
-zero_as_dose</em></small>
+<small><em>Coefficient table for the ordinal dose-weight
+denominator</em></small>
 
 The observed-versus-predicted diagnostic compares the empirical
 proportion assigned to each dose with the mean model-predicted
@@ -376,8 +377,7 @@ probability, within study and broad time window.
 The response-profile diagnostic is descriptive. It compares fitted
 dose-assignment probabilities among observed patient-visits with
 different response histories while setting the side-effect score to the
-same value in the displayed profiles. It should not be interpreted as a
-randomized manipulation of response.
+same value in the displayed profiles.
 
 ![](README_files/figure-gfm/iptw-response-profile-grid-1.png)<!-- -->
 
@@ -395,7 +395,7 @@ continuous time, study, previous dose, and baseline HAMD:
 &=
 \beta_{0c}
 + \beta_1 f(\mathrm{week}_{it})
-+ \beta_2 g_i
++ \beta_2 study_i
 + \beta_3 d_{it-1}
 + \beta_4 Y_{i0}.
 \end{aligned}
@@ -430,8 +430,8 @@ H_{it}^{*}
 | 30\|40                   |  0.775 |      0.280 |   2.766 |   0.006 |
 | 40\|50                   |  1.641 |      0.283 |   5.806 |   0.000 |
 
-<small><em>Coefficient table for the ordinal dose-weight numerator:
-zero_as_dose</em></small>
+<small><em>Coefficient table for the ordinal dose-weight
+numerator</em></small>
 
 #### Stabilized dose weights and timing
 
@@ -464,16 +464,16 @@ $t$ is therefore
 This temporal alignment differs from multiplying the current decision
 weight into the same-row outcome.
 
-| analysis_name | n | n_patients | mean_SW_treatment | sd_SW_treatment | min_SW_treatment | p1_SW_treatment | p50_SW_treatment | p99_SW_treatment | max_SW_treatment | mean_cSW_treatment | sd_cSW_treatment | min_cSW_treatment | p1_cSW_treatment | p50_cSW_treatment | p99_cSW_treatment | max_cSW_treatment | ESS_cSW_treatment |
-|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| zero_as_dose | 2308 | 422 | 0.973 | 1.292 | 0.197 | 0.281 | 0.665 | 6.094 | 20.238 | 0.832 | 1.384 | 0.001 | 0.011 | 0.583 | 5.614 | 30.6 | 612.368 |
+| Number of treatment-decision rows | Number of patients | Mean visit-specific weight | SD visit-specific weight | Minimum visit-specific weight | 1st percentile visit-specific weight | Median visit-specific weight | 99th percentile visit-specific weight | Maximum visit-specific weight | Mean cumulative weight | SD cumulative weight | Minimum cumulative weight | 1st percentile cumulative weight | Median cumulative weight | 99th percentile cumulative weight | Maximum cumulative weight | Effective sample size |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2308 | 422 | 0.973 | 1.292 | 0.197 | 0.281 | 0.665 | 6.094 | 20.238 | 0.832 | 1.384 | 0.001 | 0.011 | 0.583 | 5.614 | 30.6 | 612.368 |
 
 <small><em>Summary of visit-specific and cumulative stabilized dose
 weights</em></small>
 
-| analysis_name | n | n_patients | min_p_denominator | p1_p_denominator | p5_p_denominator | median_p_denominator | mean_p_denominator | n_p_below_0_01 | percent_p_below_0_01 | n_p_below_0_05 | percent_p_below_0_05 |
-|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| zero_as_dose | 2308 | 422 | 0.005 | 0.03 | 0.08 | 0.309 | 0.344 | 3 | 0.13 | 58 | 2.513 |
+| Number of treatment-decision rows | Number of patients | Minimum predicted probability | 1st percentile predicted probability | 5th percentile predicted probability | Median predicted probability | Mean predicted probability | Number with probability \< 0.01 | Percent with probability \< 0.01 | Number with probability \< 0.05 | Percent with probability \< 0.05 |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2308 | 422 | 0.005 | 0.03 | 0.08 | 0.309 | 0.344 | 3 | 0.13 | 58 | 2.513 |
 
 <small><em>Ordinal treatment-model positivity diagnostics</em></small>
 
@@ -505,7 +505,7 @@ current and previous side-effect scores, baseline HAMD, age, and sex:
 &=
 \gamma_0
 + \gamma_1 f(\mathrm{week}_{it})
-+ \gamma_2 g_i
++ \gamma_2 g´study_i
 + \gamma_3 d_{it}
 + \gamma_4 \Delta Y_{it}
 + \gamma_5 \Delta Y_{it-1} \\
@@ -537,8 +537,8 @@ current and previous side-effect scores, baseline HAMD, age, and sex:
 | age                      |    0.024 |      0.009 |   2.607 |       0.009 |   0.009 |
 | sexM                     |    0.040 |      0.189 |   0.211 |       0.833 |   0.833 |
 
-<small><em>Coefficient table for the censoring-weight denominator:
-zero_as_dose</em></small>
+<small><em>Coefficient table for the censoring-weight
+denominator</em></small>
 
 ![](README_files/figure-gfm/ipcw-observed-predicted-grid-1.png)<!-- -->
 
@@ -557,7 +557,7 @@ HAMD, age, and sex:
 &=
 \delta_0
 + \delta_1 f(\mathrm{week}_{it})
-+ \delta_2 g_i
++ \delta_2 study_i
 + \delta_3 d_{it}
 + \delta_4 Y_{i0}
 + \delta_5 \mathrm{age}_i
@@ -580,8 +580,8 @@ HAMD, age, and sex:
 | age                      |    0.024 |      0.009 |   2.561 |       0.010 |   0.010 |
 | sexM                     |    0.044 |      0.189 |   0.234 |       0.815 |   0.815 |
 
-<small><em>Coefficient table for the censoring-weight numerator:
-zero_as_dose</em></small>
+<small><em>Coefficient table for the censoring-weight
+numerator</em></small>
 
 #### Stabilized censoring weights and timing
 
@@ -608,9 +608,9 @@ The cumulative censoring weight applied to outcome $t$ is therefore
 \mathrm{SW}_{is}^{C}.
 ```
 
-| analysis_name | n | n_patients | mean_SW_censoring | sd_SW_censoring | min_SW_censoring | p1_SW_censoring | p50_SW_censoring | p99_SW_censoring | max_SW_censoring | mean_cSW_censoring | sd_cSW_censoring | min_cSW_censoring | p1_cSW_censoring | p50_cSW_censoring | p99_cSW_censoring | max_cSW_censoring | ESS_cSW_censoring |
-|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| zero_as_dose | 2732 | 424 | 1 | 0.012 | 0.924 | 0.964 | 1 | 1.044 | 1.163 | 1 | 0.01 | 0.875 | 0.969 | 1 | 1.034 | 1.154 | 2731.709 |
+| Number of censoring-model rows | Number of patients | Mean visit-specific weight | SD visit-specific weight | Minimum visit-specific weight | 1st percentile visit-specific weight | Median visit-specific weight | 99th percentile visit-specific weight | Maximum visit-specific weight | Mean cumulative weight | SD cumulative weight | Minimum cumulative weight | 1st percentile cumulative weight | Median cumulative weight | 99th percentile cumulative weight | Maximum cumulative weight | Effective sample size |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2732 | 424 | 1 | 0.012 | 0.924 | 0.964 | 1 | 1.044 | 1.163 | 1 | 0.01 | 0.875 | 0.969 | 1 | 1.034 | 1.154 | 2731.709 |
 
 <small><em>Summary of stabilized censoring weights</em></small>
 
@@ -647,15 +647,15 @@ effective sample size,
 }.
 ```
 
-| analysis_name | n | n_patients | mean_SW_total | sd_SW_total | min_SW_total | p1_SW_total | p50_SW_total | p99_SW_total | max_SW_total | ESS_SW_total |
-|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| zero_as_dose | 1725 | 416 | 0.839 | 1.337 | 0.001 | 0.01 | 0.595 | 5.544 | 30.559 | 487.79 |
+| Number of MSM patient-visits | Number of patients | Mean total weight | SD total weight | Minimum total weight | 1st percentile total weight | Median total weight | 99th percentile total weight | Maximum total weight | Effective sample size |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1725 | 416 | 0.839 | 1.337 | 0.001 | 0.01 | 0.595 | 5.544 | 30.559 | 487.79 |
 
 <small><em>Summary of untruncated total stabilized weights</em></small>
 
-| analysis_name | n | n_patients | mean_SW_total_trunc | sd_SW_total_trunc | min_SW_total_trunc | p1_SW_total_trunc | p50_SW_total_trunc | p99_SW_total_trunc | max_SW_total_trunc | ESS_SW_total_trunc |
-|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| zero_as_dose | 1725 | 416 | 0.793 | 0.896 | 0.01 | 0.01 | 0.595 | 5.542 | 5.544 | 758.558 |
+| Number of MSM patient-visits | Number of patients | Mean truncated total weight | SD truncated total weight | Minimum truncated total weight | 1st percentile truncated total weight | Median truncated total weight | 99th percentile truncated total weight | Maximum truncated total weight | Effective sample size |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1725 | 416 | 0.793 | 0.896 | 0.01 | 0.01 | 0.595 | 5.542 | 5.544 | 758.558 |
 
 <small><em>Summary of total stabilized weights after 1st/99th percentile
 truncation</em></small>
@@ -678,16 +678,17 @@ interact with time:
 \begin{aligned}
 \Delta Y_{it}
 &=
-\eta_0
-+ \eta_1 f(\mathrm{week}_{it})
-+ \eta_2 Y_{i0}
-+ \eta_3 d_{it-1}
-+ \eta_4 d_{it-2}
-+ \eta_5 d_{it-3} \\
+\eta_{0}
++ \eta_{1} f(\mathrm{week}_{it})
++ \eta_{2} Y_{i0}
++ \eta_{3} d_{it-1}
++ \eta_{4} d_{it-2} \\
 &\quad
-+ \eta_6 \overline{d}_{i<t-3}
-+ \eta_7 Y_{i0}f(\mathrm{week}_{it})
-+ \eta_8\left[d_{it-1}\times f(\mathrm{week}_{it})\right]
++ \eta_{5} d_{it-3}
++ \eta_{6} \overline{d}_{i\lt t-3}
++ \eta_{7} Y_{i0} f(\mathrm{week}_{it}) \\ 
+&\quad 
++ \eta_{8}\!\left(d_{it-1}, f(\mathrm{week}_{it})\right)
 + \eta_9 g_i
 + \varepsilon_{it}.
 \end{aligned}
@@ -697,8 +698,7 @@ The recent dose variables $d_{it-1}$, $d_{it-2}$, and $d_{it-3}$ are
 represented categorically using the analysis dose levels. Patients were
 untreated before study entry, so structural pre-baseline dose history is
 represented by 0 mg. The average earlier dose $\overline d_{i<t-3}$ is
-kept continuous. Age and sex are not included in the final MSM; they are
-used in the censoring models.
+kept continuous.
 
 The study fixed effect allows the mean outcome level to differ across
 studies while estimating a pooled PAROXETINE dose-response relation.
@@ -735,8 +735,8 @@ studies while estimating a pooled PAROXETINE dose-response relation.
 | rms::rcs(visit, 3)visit:dose_lag1_f50 | -3.223 | 1.757 | 3.289 | 0.960 | 0.327 |
 | rms::rcs(visit, 3)visit’:dose_lag1_f50 | 3.138 | 2.683 | 4.891 | 0.412 | 0.521 |
 
-<small><em>Weighted marginal structural model for HAMD improvement:
-zero_as_dose</em></small>
+<small><em>Weighted marginal structural model for HAMD
+improvement</em></small>
 
 ## Step 3 - Standardized dose-strategy predictions and placebo comparison
 
@@ -825,7 +825,7 @@ for that additional uncertainty.
 
 ![](README_files/figure-gfm/strategy-prediction-grid-1.png)<!-- -->
 
-| week | dose_strategy | strategy_dose | active_standardization_n | placebo_standardization_n | predicted_active_improvement | SE_active_prediction | active_lower_95 | active_upper_95 | standardized_placebo_improvement | SE_standardized_placebo | placebo_lower_95 | placebo_upper_95 | dose_vs_placebo_difference | SE_difference | difference_lower_95 | difference_upper_95 |
+| Week | Dose strategy | Strategy dose (mg) | Active standardization population | Placebo standardization population | Predicted active improvement | SE active prediction | Active 95% CI lower | Active 95% CI upper | Standardized placebo improvement | SE standardized placebo | Placebo 95% CI lower | Placebo 95% CI upper | Active - placebo difference | SE of difference | Difference 95% CI lower | Difference 95% CI upper |
 |---:|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | 1 | 20 mg | 20 | 416 | 416 | 3.424 | 0.364 | 2.710 | 4.137 | 2.649 | 0.274 | 2.113 | 3.185 | 0.775 | 0.455 | -0.118 | 1.667 |
 | 2 | 20 mg | 20 | 416 | 416 | 6.482 | 0.600 | 5.306 | 7.659 | 5.131 | 0.214 | 4.711 | 5.551 | 1.351 | 0.637 | 0.102 | 2.601 |
@@ -855,7 +855,7 @@ for that additional uncertainty.
 <small><em>Dose-strategy predictions versus standardized placebo by
 week</em></small>
 
-| week | source | dose_strategy | strategy_dose | mean_improvement | SE | lower_95 | upper_95 | n_standardized |
+| Week | Source | Dose strategy | Strategy dose (mg) | Mean HAMD improvement | SE | 95% CI lower | 95% CI upper | Standardization population |
 |---:|:---|:---|---:|---:|---:|---:|---:|---:|
 | 1 | Study-standardized placebo GEE | Placebo | NA | 2.649 | 0.274 | 2.113 | 3.185 | 416 |
 | 1 | Active GEE/MSM prediction | 20 mg | 20 | 3.424 | 0.364 | 2.710 | 4.137 | 416 |
@@ -927,7 +927,7 @@ non-reference category $d \in \{0,30,40,50\}$ is
 &=
 \alpha_{0d}
 + \alpha_{1d}f(\mathrm{week}_{it})
-+ \alpha_{2d}g_i
++ \alpha_{2d}study_i
 + \alpha_{3d}\Delta Y_{it}
 + \alpha_{4d}S_{it}
 + \alpha_{5d}d_{it-1} \\
@@ -953,7 +953,7 @@ The numerator uses the same reduced history as the ordinal numerator:
 &=
 \beta_{0d}
 + \beta_{1d}f(\mathrm{week}_{it})
-+ \beta_{2d}g_i
++ \beta_{2d}study_i
 + \beta_{3d}d_{it-1}
 + \beta_{4d}Y_{i0}.
 \end{aligned}
@@ -967,7 +967,7 @@ the same standardized target population, and the same standardized
 placebo comparator are then used. Thus the sensitivity analysis changes
 only the functional form of the treatment-assignment model.
 
-| dose_class | term | Estimate | Std_Error | z_value | p_value |
+| Dose category | Term | Estimate | Standard error | z-value | p-value |
 |:---|:---|---:|---:|---:|---:|
 | 0 | (Intercept) | -3.492 | 0.702 | -4.973 | 0.000 |
 | 0 | rms::rcs(visit, 3)visit | 0.162 | 0.145 | 1.113 | 0.266 |
@@ -1050,70 +1050,68 @@ only the functional form of the treatment-assignment model.
 | 50 | side.effects_model_locf:dose_lag1_f40 | -0.120 | 0.148 | -0.813 | 0.416 |
 | 50 | side.effects_model_locf:dose_lag1_f50 | -0.149 | 0.131 | -1.135 | 0.256 |
 
-<small><em>Multinomial dose-weight denominator model:
-zero_as_dose</em></small>
+<small><em>Multinomial dose-weight denominator model</em></small>
 
-| dose_class | term                     | Estimate | Std_Error | z_value | p_value |
-|:-----------|:-------------------------|---------:|----------:|--------:|--------:|
-| 0          | (Intercept)              |   -0.337 |     0.426 |  -0.791 |   0.429 |
-| 0          | rms::rcs(visit, 3)visit  |    0.202 |     0.130 |   1.553 |   0.120 |
-| 0          | rms::rcs(visit, 3)visit’ |   -0.166 |     0.193 |  -0.861 |   0.389 |
-| 0          | studyid29060/003         |    0.124 |     0.115 |   1.078 |   0.281 |
-| 0          | studyid29060/007         |   -0.257 |     0.335 |  -0.766 |   0.444 |
-| 0          | dose_lag1_f20            |    0.145 |     0.154 |   0.943 |   0.346 |
-| 0          | dose_lag1_f30            |   -0.226 |     0.188 |  -1.199 |   0.231 |
-| 0          | dose_lag1_f40            |    0.143 |     0.209 |   0.685 |   0.493 |
-| 0          | dose_lag1_f50            |    0.204 |     0.215 |   0.946 |   0.344 |
-| 0          | outcome_0                |   -0.007 |     0.012 |  -0.555 |   0.579 |
-| 30         | (Intercept)              |   -0.659 |     0.466 |  -1.417 |   0.157 |
-| 30         | rms::rcs(visit, 3)visit  |   -0.047 |     0.140 |  -0.336 |   0.737 |
-| 30         | rms::rcs(visit, 3)visit’ |    0.217 |     0.207 |   1.049 |   0.294 |
-| 30         | studyid29060/003         |    0.132 |     0.127 |   1.045 |   0.296 |
-| 30         | studyid29060/007         |    0.102 |     0.338 |   0.301 |   0.763 |
-| 30         | dose_lag1_f20            |    0.117 |     0.170 |   0.688 |   0.492 |
-| 30         | dose_lag1_f30            |   -0.052 |     0.204 |  -0.256 |   0.798 |
-| 30         | dose_lag1_f40            |    0.194 |     0.229 |   0.847 |   0.397 |
-| 30         | dose_lag1_f50            |    0.110 |     0.240 |   0.457 |   0.648 |
-| 30         | outcome_0                |    0.006 |     0.013 |   0.426 |   0.670 |
-| 40         | (Intercept)              |   -1.109 |     0.529 |  -2.099 |   0.036 |
-| 40         | rms::rcs(visit, 3)visit  |    0.010 |     0.160 |   0.063 |   0.950 |
-| 40         | rms::rcs(visit, 3)visit’ |    0.044 |     0.239 |   0.185 |   0.854 |
-| 40         | studyid29060/003         |    0.033 |     0.147 |   0.223 |   0.824 |
-| 40         | studyid29060/007         |    0.854 |     0.317 |   2.697 |   0.007 |
-| 40         | dose_lag1_f20            |    0.143 |     0.200 |   0.715 |   0.475 |
-| 40         | dose_lag1_f30            |    0.253 |     0.227 |   1.111 |   0.267 |
-| 40         | dose_lag1_f40            |    0.122 |     0.270 |   0.451 |   0.652 |
-| 40         | dose_lag1_f50            |    0.275 |     0.270 |   1.020 |   0.308 |
-| 40         | outcome_0                |    0.003 |     0.015 |   0.224 |   0.822 |
-| 50         | (Intercept)              |   -0.280 |     0.519 |  -0.539 |   0.590 |
-| 50         | rms::rcs(visit, 3)visit  |   -0.126 |     0.159 |  -0.793 |   0.428 |
-| 50         | rms::rcs(visit, 3)visit’ |    0.336 |     0.234 |   1.437 |   0.151 |
-| 50         | studyid29060/003         |   -0.449 |     0.151 |  -2.976 |   0.003 |
-| 50         | studyid29060/007         |    0.855 |     0.302 |   2.829 |   0.005 |
-| 50         | dose_lag1_f20            |   -0.076 |     0.195 |  -0.387 |   0.699 |
-| 50         | dose_lag1_f30            |   -0.099 |     0.231 |  -0.428 |   0.669 |
-| 50         | dose_lag1_f40            |   -0.298 |     0.281 |  -1.059 |   0.289 |
-| 50         | dose_lag1_f50            |    0.243 |     0.254 |   0.957 |   0.339 |
-| 50         | outcome_0                |   -0.008 |     0.015 |  -0.528 |   0.598 |
+| Dose category | Term | Estimate | Standard error | z-value | p-value |
+|:---|:---|---:|---:|---:|---:|
+| 0 | (Intercept) | -0.337 | 0.426 | -0.791 | 0.429 |
+| 0 | rms::rcs(visit, 3)visit | 0.202 | 0.130 | 1.553 | 0.120 |
+| 0 | rms::rcs(visit, 3)visit’ | -0.166 | 0.193 | -0.861 | 0.389 |
+| 0 | studyid29060/003 | 0.124 | 0.115 | 1.078 | 0.281 |
+| 0 | studyid29060/007 | -0.257 | 0.335 | -0.766 | 0.444 |
+| 0 | dose_lag1_f20 | 0.145 | 0.154 | 0.943 | 0.346 |
+| 0 | dose_lag1_f30 | -0.226 | 0.188 | -1.199 | 0.231 |
+| 0 | dose_lag1_f40 | 0.143 | 0.209 | 0.685 | 0.493 |
+| 0 | dose_lag1_f50 | 0.204 | 0.215 | 0.946 | 0.344 |
+| 0 | outcome_0 | -0.007 | 0.012 | -0.555 | 0.579 |
+| 30 | (Intercept) | -0.659 | 0.466 | -1.417 | 0.157 |
+| 30 | rms::rcs(visit, 3)visit | -0.047 | 0.140 | -0.336 | 0.737 |
+| 30 | rms::rcs(visit, 3)visit’ | 0.217 | 0.207 | 1.049 | 0.294 |
+| 30 | studyid29060/003 | 0.132 | 0.127 | 1.045 | 0.296 |
+| 30 | studyid29060/007 | 0.102 | 0.338 | 0.301 | 0.763 |
+| 30 | dose_lag1_f20 | 0.117 | 0.170 | 0.688 | 0.492 |
+| 30 | dose_lag1_f30 | -0.052 | 0.204 | -0.256 | 0.798 |
+| 30 | dose_lag1_f40 | 0.194 | 0.229 | 0.847 | 0.397 |
+| 30 | dose_lag1_f50 | 0.110 | 0.240 | 0.457 | 0.648 |
+| 30 | outcome_0 | 0.006 | 0.013 | 0.426 | 0.670 |
+| 40 | (Intercept) | -1.109 | 0.529 | -2.099 | 0.036 |
+| 40 | rms::rcs(visit, 3)visit | 0.010 | 0.160 | 0.063 | 0.950 |
+| 40 | rms::rcs(visit, 3)visit’ | 0.044 | 0.239 | 0.185 | 0.854 |
+| 40 | studyid29060/003 | 0.033 | 0.147 | 0.223 | 0.824 |
+| 40 | studyid29060/007 | 0.854 | 0.317 | 2.697 | 0.007 |
+| 40 | dose_lag1_f20 | 0.143 | 0.200 | 0.715 | 0.475 |
+| 40 | dose_lag1_f30 | 0.253 | 0.227 | 1.111 | 0.267 |
+| 40 | dose_lag1_f40 | 0.122 | 0.270 | 0.451 | 0.652 |
+| 40 | dose_lag1_f50 | 0.275 | 0.270 | 1.020 | 0.308 |
+| 40 | outcome_0 | 0.003 | 0.015 | 0.224 | 0.822 |
+| 50 | (Intercept) | -0.280 | 0.519 | -0.539 | 0.590 |
+| 50 | rms::rcs(visit, 3)visit | -0.126 | 0.159 | -0.793 | 0.428 |
+| 50 | rms::rcs(visit, 3)visit’ | 0.336 | 0.234 | 1.437 | 0.151 |
+| 50 | studyid29060/003 | -0.449 | 0.151 | -2.976 | 0.003 |
+| 50 | studyid29060/007 | 0.855 | 0.302 | 2.829 | 0.005 |
+| 50 | dose_lag1_f20 | -0.076 | 0.195 | -0.387 | 0.699 |
+| 50 | dose_lag1_f30 | -0.099 | 0.231 | -0.428 | 0.669 |
+| 50 | dose_lag1_f40 | -0.298 | 0.281 | -1.059 | 0.289 |
+| 50 | dose_lag1_f50 | 0.243 | 0.254 | 0.957 | 0.339 |
+| 50 | outcome_0 | -0.008 | 0.015 | -0.528 | 0.598 |
 
-<small><em>Multinomial dose-weight numerator model:
-zero_as_dose</em></small>
+<small><em>Multinomial dose-weight numerator model</em></small>
 
-| analysis_name | n | n_patients | mean_SW_treatment_multinom | sd_SW_treatment_multinom | min_SW_treatment_multinom | p1_SW_treatment_multinom | p50_SW_treatment_multinom | p99_SW_treatment_multinom | max_SW_treatment_multinom | mean_cSW_treatment_multinom | sd_cSW_treatment_multinom | min_cSW_treatment_multinom | p1_cSW_treatment_multinom | p50_cSW_treatment_multinom | p99_cSW_treatment_multinom | max_cSW_treatment_multinom | ESS_cSW_treatment_multinom |
-|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| zero_as_dose | 2308 | 422 | 1.097 | 3.545 | 0.193 | 0.265 | 0.696 | 8.729 | 119.095 | 0.914 | 3.084 | 0.001 | 0.012 | 0.555 | 7.97 | 119.095 | 186.298 |
+| Number of treatment-decision rows | Number of patients | Mean visit-specific weight | SD visit-specific weight | Minimum visit-specific weight | 1st percentile visit-specific weight | Median visit-specific weight | 99th percentile visit-specific weight | Maximum visit-specific weight | Mean cumulative weight | SD cumulative weight | Minimum cumulative weight | 1st percentile cumulative weight | Median cumulative weight | 99th percentile cumulative weight | Maximum cumulative weight | Effective sample size |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2308 | 422 | 1.097 | 3.545 | 0.193 | 0.265 | 0.696 | 8.729 | 119.095 | 0.914 | 3.084 | 0.001 | 0.012 | 0.555 | 7.97 | 119.095 | 186.298 |
 
 <small><em>Summary of multinomial stabilized treatment
 weights</em></small>
 
-| analysis_name | n | n_patients | mean_SW_total_multinom_trunc | sd_SW_total_multinom_trunc | min_SW_total_multinom_trunc | p1_SW_total_multinom_trunc | p50_SW_total_multinom_trunc | p99_SW_total_multinom_trunc | max_SW_total_multinom_trunc | ESS_SW_total_multinom_trunc |
-|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| zero_as_dose | 1725 | 416 | 0.803 | 1.105 | 0.01 | 0.01 | 0.561 | 7.873 | 7.881 | 596.506 |
+| Number of MSM patient-visits | Number of patients | Mean truncated total weight | SD truncated total weight | Minimum truncated total weight | 1st percentile truncated total weight | Median truncated total weight | 99th percentile truncated total weight | Maximum truncated total weight | Effective sample size |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1725 | 416 | 0.803 | 1.105 | 0.01 | 0.01 | 0.561 | 7.873 | 7.881 | 596.506 |
 
 <small><em>Summary of truncated total weights using multinomial
 IPTW</em></small>
 
-| Term | Estimate | Naive_SE | Robust_SE | Wald_robust | p_value_robust |
+| Term | Estimate | Naive SE | Robust SE | Robust Wald statistic | Robust p-value |
 |:---|---:|---:|---:|---:|---:|
 | (Intercept) | -20.054 | 3.866 | 5.850 | 11.753 | 0.001 |
 | rms::rcs(visit, 3)visit | -0.932 | 2.144 | 3.232 | 0.083 | 0.773 |
@@ -1145,8 +1143,8 @@ IPTW</em></small>
 | rms::rcs(visit, 3)visit:dose_lag1_f50 | -3.572 | 1.633 | 3.728 | 0.918 | 0.338 |
 | rms::rcs(visit, 3)visit’:dose_lag1_f50 | 2.214 | 2.506 | 5.393 | 0.168 | 0.682 |
 
-<small><em>Weighted MSM using multinomial IPTW:
-zero_as_dose</em></small>
+<small><em>Weighted marginal structural model using multinomial
+IPTW</em></small>
 
 ### Predicted trajectories using multinomial IPTW
 

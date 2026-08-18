@@ -224,7 +224,18 @@ dose_grouping_grid
 
 ```{r analysis-modelability, echo=FALSE, message=FALSE, warning=FALSE}
 knitr::kable(
-  analysis_modelability,
+  analysis_modelability |>
+    dplyr::select(
+      -analysis_name,
+      -modelable
+    ),
+  col.names = c(
+    "Number of patients",
+    "Number of treatment-decision rows",
+    "Number of dose levels",
+    "Minimum patient-visits per dose",
+    "Observed dose levels (mg)"
+  ),
   caption = "<small><em>Support check for the pooled active analysis</em></small>"
 )
 ```
@@ -345,7 +356,7 @@ The **denominator model** represents the full observed dose-assignment mechanism
 
 #### Dose weight denominator
 
-The primary dose-weight denominator is fitted at the patient-observation level using ordinal logistic regression. Dose is an ordered categorical variable with levels \(0 < 20 < 30 < 40 < 50\) mg. For each cumulative threshold \(c\), the model is
+The **denominator model** the dose weight was fitted at the patient-visit level using ordinal logistic regression, treating dose as an ordered categorical variable (0<20<30<40<50). For each threshold d∈{0,20,30,40}, we modelled the cumulative probability of receiving a dose less than or equal to d.
 
 ```math
 \begin{aligned}
@@ -356,7 +367,7 @@ The primary dose-weight denominator is fitted at the patient-observation level u
 &=
 \alpha_{0c}
 + \alpha_1 f(\mathrm{week}_{it})
-+ \alpha_2 g_i
++ \alpha_2 study_i
 + \alpha_3 \Delta Y_{it}
 + \alpha_4 S_{it}
 + \alpha_5 d_{it-1} \\
@@ -383,10 +394,12 @@ H_{it}
 ```
 
 ```{r iptw-denominator-coef-tabs, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
-print_kable_list(
-  iptw_denominator_coef_tabs,
-  caption = "Coefficient table for the ordinal dose-weight denominator",
-  digits = 3
+knitr::kable(
+  as.data.frame(
+    iptw_denominator_coef_tabs$zero_as_dose
+  ),
+  digits = 3,
+  caption = "<small><em>Coefficient table for the ordinal dose-weight denominator</em></small>"
 )
 ```
 
@@ -396,7 +409,7 @@ The observed-versus-predicted diagnostic compares the empirical proportion assig
 iptw_dose_model_grid
 ```
 
-The response-profile diagnostic is descriptive. It compares fitted dose-assignment probabilities among observed patient-visits with different response histories while setting the side-effect score to the same value in the displayed profiles. It should not be interpreted as a randomized manipulation of response.
+The response-profile diagnostic is descriptive. It compares fitted dose-assignment probabilities among observed patient-visits with different response histories while setting the side-effect score to the same value in the displayed profiles.
 
 ```{r iptw-response-profile-grid, echo=FALSE, message=FALSE, warning=FALSE, fig.width=12, fig.height=7}
 iptw_response_profile_grid
@@ -416,7 +429,7 @@ The numerator excludes the time-varying confounders while retaining continuous t
 &=
 \beta_{0c}
 + \beta_1 f(\mathrm{week}_{it})
-+ \beta_2 g_i
++ \beta_2 study_i
 + \beta_3 d_{it-1}
 + \beta_4 Y_{i0}.
 \end{aligned}
@@ -436,10 +449,12 @@ H_{it}^{*}
 ```
 
 ```{r iptw-numerator-coef-tabs, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
-print_kable_list(
-  iptw_numerator_coef_tabs,
-  caption = "Coefficient table for the ordinal dose-weight numerator",
-  digits = 3
+knitr::kable(
+  as.data.frame(
+    iptw_numerator_coef_tabs$zero_as_dose
+  ),
+  digits = 3,
+  caption = "<small><em>Coefficient table for the ordinal dose-weight numerator</em></small>"
 )
 ```
 
@@ -471,16 +486,51 @@ This temporal alignment differs from multiplying the current decision weight int
 
 ```{r iptw-treatment-weight-summary-clean, echo=FALSE, message=FALSE, warning=FALSE}
 knitr::kable(
-  stack_named_tables(iptw_weight_summaries),
+  iptw_weight_summaries$zero_as_dose,
   digits = 3,
+  col.names = c(
+    "Number of treatment-decision rows",
+    "Number of patients",
+    "Mean visit-specific weight",
+    "SD visit-specific weight",
+    "Minimum visit-specific weight",
+    "1st percentile visit-specific weight",
+    "Median visit-specific weight",
+    "99th percentile visit-specific weight",
+    "Maximum visit-specific weight",
+    "Mean cumulative weight",
+    "SD cumulative weight",
+    "Minimum cumulative weight",
+    "1st percentile cumulative weight",
+    "Median cumulative weight",
+    "99th percentile cumulative weight",
+    "Maximum cumulative weight",
+    "Effective sample size"
+  ),
   caption = "<small><em>Summary of visit-specific and cumulative stabilized dose weights</em></small>"
 )
 ```
 
 ```{r iptw-positivity, echo=FALSE, message=FALSE, warning=FALSE}
 knitr::kable(
-  iptw_probability_diagnostics,
+  iptw_probability_diagnostics |>
+    dplyr::select(
+      -analysis_name
+    ),
   digits = 3,
+  col.names = c(
+    "Number of treatment-decision rows",
+    "Number of patients",
+    "Minimum predicted probability",
+    "1st percentile predicted probability",
+    "5th percentile predicted probability",
+    "Median predicted probability",
+    "Mean predicted probability",
+    "Number with probability < 0.01",
+    "Percent with probability < 0.01",
+    "Number with probability < 0.05",
+    "Percent with probability < 0.05"
+  ),
   caption = "<small><em>Ordinal treatment-model positivity diagnostics</em></small>"
 )
 ```
@@ -505,7 +555,7 @@ The denominator model includes study, a restricted cubic spline of continuous ti
 &=
 \gamma_0
 + \gamma_1 f(\mathrm{week}_{it})
-+ \gamma_2 g_i
++ \gamma_2 g´study_i
 + \gamma_3 d_{it}
 + \gamma_4 \Delta Y_{it}
 + \gamma_5 \Delta Y_{it-1} \\
@@ -519,10 +569,12 @@ The denominator model includes study, a restricted cubic spline of continuous ti
 ```
 
 ```{r ipcw-denominator-coef-tabs, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
-print_kable_list(
-  ipcw_denominator_coef_tabs,
-  caption = "Coefficient table for the censoring-weight denominator",
-  digits = 3
+knitr::kable(
+  as.data.frame(
+    ipcw_denominator_coef_tabs$zero_as_dose
+  ),
+  digits = 3,
+  caption = "<small><em>Coefficient table for the censoring-weight denominator</em></small>"
 )
 ```
 
@@ -544,7 +596,7 @@ The numerator excludes the time-varying efficacy and side-effect histories but r
 &=
 \delta_0
 + \delta_1 f(\mathrm{week}_{it})
-+ \delta_2 g_i
++ \delta_2 study_i
 + \delta_3 d_{it}
 + \delta_4 Y_{i0}
 + \delta_5 \mathrm{age}_i
@@ -553,10 +605,13 @@ The numerator excludes the time-varying efficacy and side-effect histories but r
 ```
 
 ```{r ipcw-numerator-coef-tabs, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
-print_kable_list(
-  ipcw_numerator_coef_tabs,
-  caption = "Coefficient table for the censoring-weight numerator",
-  digits = 3
+
+knitr::kable(
+  as.data.frame(
+    ipcw_numerator_coef_tabs$zero_as_dose
+  ),
+  digits = 3,
+  caption = "<small><em>Coefficient table for the censoring-weight numerator</em></small>"
 )
 ```
 
@@ -586,8 +641,27 @@ As with treatment assignment, censoring after observation \(t\) can affect later
 
 ```{r ipcw-censoring-weight-summary, echo=FALSE, message=FALSE, warning=FALSE}
 knitr::kable(
-  stack_named_tables(ipcw_weight_summaries),
+  ipcw_weight_summaries$zero_as_dose,
   digits = 3,
+  col.names = c(
+    "Number of censoring-model rows",
+    "Number of patients",
+    "Mean visit-specific weight",
+    "SD visit-specific weight",
+    "Minimum visit-specific weight",
+    "1st percentile visit-specific weight",
+    "Median visit-specific weight",
+    "99th percentile visit-specific weight",
+    "Maximum visit-specific weight",
+    "Mean cumulative weight",
+    "SD cumulative weight",
+    "Minimum cumulative weight",
+    "1st percentile cumulative weight",
+    "Median cumulative weight",
+    "99th percentile cumulative weight",
+    "Maximum cumulative weight",
+    "Effective sample size"
+  ),
   caption = "<small><em>Summary of stabilized censoring weights</em></small>"
 )
 ```
@@ -625,16 +699,40 @@ The total weight, rather than its treatment and censoring components separately,
 
 ```{r total-weight-summary, echo=FALSE, message=FALSE, warning=FALSE}
 knitr::kable(
-  stack_named_tables(total_weight_summaries),
+  total_weight_summaries$zero_as_dose,
   digits = 3,
+  col.names = c(
+    "Number of MSM patient-visits",
+    "Number of patients",
+    "Mean total weight",
+    "SD total weight",
+    "Minimum total weight",
+    "1st percentile total weight",
+    "Median total weight",
+    "99th percentile total weight",
+    "Maximum total weight",
+    "Effective sample size"
+  ),
   caption = "<small><em>Summary of untruncated total stabilized weights</em></small>"
 )
 ```
 
 ```{r total-truncated-weight-summary, echo=FALSE, message=FALSE, warning=FALSE}
 knitr::kable(
-  stack_named_tables(truncated_weight_summaries),
+  truncated_weight_summaries$zero_as_dose,
   digits = 3,
+  col.names = c(
+    "Number of MSM patient-visits",
+    "Number of patients",
+    "Mean truncated total weight",
+    "SD truncated total weight",
+    "Minimum truncated total weight",
+    "1st percentile truncated total weight",
+    "Median truncated total weight",
+    "99th percentile truncated total weight",
+    "Maximum truncated total weight",
+    "Effective sample size"
+  ),
   caption = "<small><em>Summary of total stabilized weights after 1st/99th percentile truncation</em></small>"
 )
 ```
@@ -650,30 +748,33 @@ The outcome model includes a restricted cubic spline of continuous study week, b
 \begin{aligned}
 \Delta Y_{it}
 &=
-\eta_0
-+ \eta_1 f(\mathrm{week}_{it})
-+ \eta_2 Y_{i0}
-+ \eta_3 d_{it-1}
-+ \eta_4 d_{it-2}
-+ \eta_5 d_{it-3} \\
+\eta_{0}
++ \eta_{1} f(\mathrm{week}_{it})
++ \eta_{2} Y_{i0}
++ \eta_{3} d_{it-1}
++ \eta_{4} d_{it-2} \\
 &\quad
-+ \eta_6 \overline{d}_{i<t-3}
-+ \eta_7 Y_{i0}f(\mathrm{week}_{it})
-+ \eta_8\left[d_{it-1}\times f(\mathrm{week}_{it})\right]
++ \eta_{5} d_{it-3}
++ \eta_{6} \overline{d}_{i\lt t-3}
++ \eta_{7} Y_{i0} f(\mathrm{week}_{it}) \\ 
+&\quad 
++ \eta_{8}\!\left(d_{it-1}, f(\mathrm{week}_{it})\right)
 + \eta_9 g_i
 + \varepsilon_{it}.
 \end{aligned}
 ```
 
-The recent dose variables \(d_{it-1}\), \(d_{it-2}\), and \(d_{it-3}\) are represented categorically using the analysis dose levels. Patients were untreated before study entry, so structural pre-baseline dose history is represented by 0 mg. The average earlier dose \(\overline d_{i<t-3}\) is kept continuous. Age and sex are not included in the final MSM; they are used in the censoring models.
+The recent dose variables \(d_{it-1}\), \(d_{it-2}\), and \(d_{it-3}\) are represented categorically using the analysis dose levels. Patients were untreated before study entry, so structural pre-baseline dose history is represented by 0 mg. The average earlier dose \(\overline d_{i<t-3}\) is kept continuous. 
 
 The study fixed effect allows the mean outcome level to differ across studies while estimating a pooled PAROXETINE dose-response relation.
 
 ```{r msm-coef-tabs, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
-print_kable_list(
-  msm_coef_tabs,
-  caption = "Weighted marginal structural model for HAMD improvement",
-  digits = 3
+knitr::kable(
+  as.data.frame(
+    msm_coef_tabs$zero_as_dose
+  ),
+  digits = 3,
+  caption = "<small><em>Weighted marginal structural model for HAMD improvement</em></small>"
 )
 ```
 
@@ -731,6 +832,25 @@ strategy_prediction_plot
 knitr::kable(
   dose_vs_placebo_table_readme,
   digits = 3,
+  col.names = c(
+    "Week",
+    "Dose strategy",
+    "Strategy dose (mg)",
+    "Active standardization population",
+    "Placebo standardization population",
+    "Predicted active improvement",
+    "SE active prediction",
+    "Active 95% CI lower",
+    "Active 95% CI upper",
+    "Standardized placebo improvement",
+    "SE standardized placebo",
+    "Placebo 95% CI lower",
+    "Placebo 95% CI upper",
+    "Active - placebo difference",
+    "SE of difference",
+    "Difference 95% CI lower",
+    "Difference 95% CI upper"
+  ),
   caption = "<small><em>Dose-strategy predictions versus standardized placebo by week</em></small>"
 )
 ```
@@ -739,6 +859,17 @@ knitr::kable(
 knitr::kable(
   gee_and_placebo_means_table_readme,
   digits = 3,
+  col.names = c(
+    "Week",
+    "Source",
+    "Dose strategy",
+    "Strategy dose (mg)",
+    "Mean HAMD improvement",
+    "SE",
+    "95% CI lower",
+    "95% CI upper",
+    "Standardization population"
+  ),
   caption = "<small><em>Active MSM predictions and standardized placebo predictions by week</em></small>"
 )
 ```
@@ -771,7 +902,7 @@ Using 20 mg as the reference dose, the denominator model for each non-reference 
 &=
 \alpha_{0d}
 + \alpha_{1d}f(\mathrm{week}_{it})
-+ \alpha_{2d}g_i
++ \alpha_{2d}study_i
 + \alpha_{3d}\Delta Y_{it}
 + \alpha_{4d}S_{it}
 + \alpha_{5d}d_{it-1} \\
@@ -797,7 +928,7 @@ The numerator uses the same reduced history as the ordinal numerator:
 &=
 \beta_{0d}
 + \beta_{1d}f(\mathrm{week}_{it})
-+ \beta_{2d}g_i
++ \beta_{2d}study_i
 + \beta_{3d}d_{it-1}
 + \beta_{4d}Y_{i0}.
 \end{aligned}
@@ -806,39 +937,97 @@ The numerator uses the same reduced history as the ordinal numerator:
 For each observation, the fitted probability corresponding to the actually received dose is extracted from each model and used to construct stabilized treatment weights. The same lagged treatment-weight timing, the same IPCW, the same total-weight truncation, the same MSM, the same standardized target population, and the same standardized placebo comparator are then used. Thus the sensitivity analysis changes only the functional form of the treatment-assignment model.
 
 ```{r appendix-multinomial-iptw, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+################################################################################
+################ MULTINOMIAL IPTW TABLES #######################################
+################################################################################
+
 if (exists("multinom_denominator_coef_tabs")) {
-  print_kable_list(
-    multinom_denominator_coef_tabs,
-    caption = "Multinomial dose-weight denominator model",
-    digits = 3
+
+  knitr::kable(
+    as.data.frame(
+      multinom_denominator_coef_tabs$zero_as_dose
+    ),
+    digits = 3,
+    col.names = c(
+      "Dose category",
+      "Term",
+      "Estimate",
+      "Standard error",
+      "z-value",
+      "p-value"
+    ),
+    caption = "<small><em>Multinomial dose-weight denominator model</em></small>"
   )
 }
+
 
 if (exists("multinom_numerator_coef_tabs")) {
-  print_kable_list(
-    multinom_numerator_coef_tabs,
-    caption = "Multinomial dose-weight numerator model",
-    digits = 3
+
+  knitr::kable(
+    as.data.frame(
+      multinom_numerator_coef_tabs$zero_as_dose
+    ),
+    digits = 3,
+    col.names = c(
+      "Dose category",
+      "Term",
+      "Estimate",
+      "Standard error",
+      "z-value",
+      "p-value"
+    ),
+    caption = "<small><em>Multinomial dose-weight numerator model</em></small>"
   )
 }
+
 
 if (exists("multinom_weight_summaries")) {
-  print(
-    knitr::kable(
-      stack_named_tables(multinom_weight_summaries),
-      digits = 3,
-      caption = "<small><em>Summary of multinomial stabilized treatment weights</em></small>"
-    )
+
+  knitr::kable(
+    multinom_weight_summaries$zero_as_dose,
+    digits = 3,
+    col.names = c(
+      "Number of treatment-decision rows",
+      "Number of patients",
+      "Mean visit-specific weight",
+      "SD visit-specific weight",
+      "Minimum visit-specific weight",
+      "1st percentile visit-specific weight",
+      "Median visit-specific weight",
+      "99th percentile visit-specific weight",
+      "Maximum visit-specific weight",
+      "Mean cumulative weight",
+      "SD cumulative weight",
+      "Minimum cumulative weight",
+      "1st percentile cumulative weight",
+      "Median cumulative weight",
+      "99th percentile cumulative weight",
+      "Maximum cumulative weight",
+      "Effective sample size"
+    ),
+    caption = "<small><em>Summary of multinomial stabilized treatment weights</em></small>"
   )
 }
 
+
 if (exists("multinom_total_truncated_weight_summaries")) {
-  print(
-    knitr::kable(
-      stack_named_tables(multinom_total_truncated_weight_summaries),
-      digits = 3,
-      caption = "<small><em>Summary of truncated total weights using multinomial IPTW</em></small>"
-    )
+
+  knitr::kable(
+    multinom_total_truncated_weight_summaries$zero_as_dose,
+    digits = 3,
+    col.names = c(
+      "Number of MSM patient-visits",
+      "Number of patients",
+      "Mean truncated total weight",
+      "SD truncated total weight",
+      "Minimum truncated total weight",
+      "1st percentile truncated total weight",
+      "Median truncated total weight",
+      "99th percentile truncated total weight",
+      "Maximum truncated total weight",
+      "Effective sample size"
+    ),
+    caption = "<small><em>Summary of truncated total weights using multinomial IPTW</em></small>"
   )
 }
 ```
@@ -846,10 +1035,21 @@ if (exists("multinom_total_truncated_weight_summaries")) {
 
 ```{r appendix-multinomial-msm, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
 if (exists("multinom_msm_coef_tabs")) {
-  print_kable_list(
-    multinom_msm_coef_tabs,
-    caption = "Weighted MSM using multinomial IPTW",
-    digits = 3
+
+  knitr::kable(
+    as.data.frame(
+      multinom_msm_coef_tabs$zero_as_dose
+    ),
+    digits = 3,
+    col.names = c(
+      "Term",
+      "Estimate",
+      "Naive SE",
+      "Robust SE",
+      "Robust Wald statistic",
+      "Robust p-value"
+    ),
+    caption = "<small><em>Weighted marginal structural model using multinomial IPTW</em></small>"
   )
 }
 ```
