@@ -23,7 +23,7 @@ knitr::opts_chunk$set(
 
 # The master script runs the current pooled PAROXETINE analysis and creates
 # all objects displayed below.
-source("DR_03_master_stepwise_by_arm.R")
+source("00_master.R")
 
 if (!requireNamespace("patchwork", quietly = TRUE)) {
   stop("Package not installed: patchwork")
@@ -170,22 +170,35 @@ The clinical outcome is the Hamilton Depression Rating Scale (HAMD) score, denot
 
 Thus, positive values of \(\Delta Y_{it}\) indicate improvement.
 
-The current analysis pools all eligible studies containing both **PAROXETINE** and placebo. Patient identifiers are made study-specific before pooling. The primary analysis retains actual reported study time and expresses it continuously in weeks, rather than converting observations into artificial integer-week bins. Follow-up for the outcome analysis is restricted to day 42 (6 weeks), while the complete available follow-up is retained to determine whether a patient truly had no later observation.
+The current analysis pools all eligible studies containing both **PAROXETINE** and placebo. The primary analysis retains actual reported study time and expresses it continuously in weeks. Follow-up for the outcome analysis is restricted to day 42 (6 weeks), while the complete available follow-up is retained to determine whether a patient truly had no later observation (i.e., permanent loss to follow-up before the analysis horizon).
 
 The observed PAROXETINE dose is treated as a time-varying treatment. Zero dose is retained as a genuine observed treatment state in the treatment-assignment and dose-history models. Sparse dose support is grouped before modelling; in the current data 10 mg is represented as 20 mg and 60 mg as 50 mg, while the original reported dose is preserved separately. The clinically presented sustained strategies are 20, 30, 40, and 50 mg; the 0 mg strategy is not displayed in the final figures.
 
-Safety is summarized using a side-effect score \(S_{it}\) on a 0--10 scale. In the current analysis these values are simulated placeholders when real side-effect information is unavailable and should not be interpreted as clinical findings.
+Safety is summarized using a side-effect score \(S_{it}\) on a 0--10 scale, denoting the number of relevant to PAROXETINE side effects reported. In the current analysis these values are simulated.
 
 Previous dose \(d_{it-1}\) is part of the treatment process because it defines the dose trajectory and strongly predicts the next assigned dose. The post-baseline HAMD improvement \(\Delta Y_{it}\) and side-effect severity \(S_{it}\) are treated as time-varying confounders because they may be affected by previous treatment and may also influence subsequent dose assignment, future outcome, or censoring.
 
 ```{r summary-efficacy-safety, echo=FALSE, message=FALSE, warning=FALSE}
+
 knitr::kable(
   analysis_summary,
+  col.names = c(
+    "Number of active patients",
+    "Number of active patient-visits",
+    "Number of MSM patients",
+    "Number of MSM patient-visits",
+    "Observed dose levels (mg)"
+  ),
   caption = "<small><em>Pooled PAROXETINE analysis summary</em></small>"
 )
 
 knitr::kable(
   study_summary,
+  col.names = c(
+    "Study",
+    "Number of active patients",
+    "Number of active patient-visits"
+  ),
   caption = "<small><em>Active-arm contribution by study</em></small>"
 )
 ```

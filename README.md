@@ -45,13 +45,12 @@ expressed as improvement from baseline:
 Thus, positive values of $\Delta Y_{it}$ indicate improvement.
 
 The current analysis pools all eligible studies containing both
-**PAROXETINE** and placebo. Patient identifiers are made study-specific
-before pooling. The primary analysis retains actual reported study time
-and expresses it continuously in weeks, rather than converting
-observations into artificial integer-week bins. Follow-up for the
+**PAROXETINE** and placebo. The primary analysis retains actual reported
+study time and expresses it continuously in weeks. Follow-up for the
 outcome analysis is restricted to day 42 (6 weeks), while the complete
 available follow-up is retained to determine whether a patient truly had
-no later observation.
+no later observation (i.e., permanent loss to follow-up before the
+analysis horizon).
 
 The observed PAROXETINE dose is treated as a time-varying treatment.
 Zero dose is retained as a genuine observed treatment state in the
@@ -61,10 +60,9 @@ mg and 60 mg as 50 mg, while the original reported dose is preserved
 separately. The clinically presented sustained strategies are 20, 30,
 40, and 50 mg; the 0 mg strategy is not displayed in the final figures.
 
-Safety is summarized using a side-effect score $S_{it}$ on a 0–10 scale.
-In the current analysis these values are simulated placeholders when
-real side-effect information is unavailable and should not be
-interpreted as clinical findings.
+Safety is summarized using a side-effect score $S_{it}$ on a 0–10 scale,
+denoting the number of relevant to PAROXETINE side effects reported. In
+the current analysis these values are simulated.
 
 Previous dose $d_{it-1}$ is part of the treatment process because it
 defines the dose trajectory and strongly predicts the next assigned
@@ -73,17 +71,17 @@ severity $S_{it}$ are treated as time-varying confounders because they
 may be affected by previous treatment and may also influence subsequent
 dose assignment, future outcome, or censoring.
 
-| n_active_patients | n_active_rows | n_msm_patients | n_msm_rows | dose_levels       |
-|------------------:|--------------:|---------------:|-----------:|:------------------|
-|               424 |          2853 |            416 |       1725 | 0, 20, 30, 40, 50 |
+| Number of active patients | Number of active patient-visits | Number of MSM patients | Number of MSM patient-visits | Observed dose levels (mg) |
+|---:|---:|---:|---:|:---|
+| 424 | 2853 | 416 | 1725 | 0, 20, 30, 40, 50 |
 
 <small><em>Pooled PAROXETINE analysis summary</em></small>
 
-| studyid   | n_active_patients | n_active_rows |
-|:----------|------------------:|--------------:|
-| 29060/002 |               170 |          1300 |
-| 29060/003 |               241 |          1419 |
-| 29060/007 |                13 |           134 |
+| Study     | Number of active patients | Number of active patient-visits |
+|:----------|--------------------------:|--------------------------------:|
+| 29060/002 |                       170 |                            1300 |
+| 29060/003 |                       241 |                            1419 |
+| 29060/007 |                        13 |                             134 |
 
 <small><em>Active-arm contribution by study</em></small>
 
