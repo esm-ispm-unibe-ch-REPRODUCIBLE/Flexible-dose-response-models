@@ -1075,14 +1075,3 @@ if (exists("ordinal_vs_multinom_strategy_plot")) {
 }
 ```
 
-```{r appendix-ordinal-vs-multinomial-comparison, echo=FALSE, message=FALSE, warning=FALSE}
-if (exists("ordinal_vs_multinom_table_readme")) {
-  print(
-    knitr::kable(
-      ordinal_vs_multinom_table_readme,
-      digits = 3,
-      caption = "<small><em>Comparison of dose-versus-placebo predictions using ordinal versus multinomial treatment weights</em></small>"
-    )
-  )
-}
-```
