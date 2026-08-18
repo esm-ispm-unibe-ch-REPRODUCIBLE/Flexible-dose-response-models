@@ -151,7 +151,7 @@ Actual continuous study week of observation $t$ for patient $i$.
 </tr>
 <tr>
 <td>
-$g_i$
+$study_i$
 </td>
 <td>
 Study identifier for patient $i$, entered as a fixed effect.
